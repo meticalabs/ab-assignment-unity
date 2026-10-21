@@ -1,0 +1,62 @@
+{
+  "conditions": [
+    {
+      "name": "ios_users",
+      "expression": "device.os == 'ios'",
+      "tagColor": "BLUE"
+    },
+    {
+      "name": "qa_devices",
+      "expression": "app.userProperty['qa'] == 'true'",
+      "tagColor": "GREEN"
+    }
+  ],
+  "parameters": {
+    "AdsSettings": {
+      "defaultValue": {
+        "value": "{\"interstitial_cooldown\":30}"
+      },
+      "conditionalValues": {
+        "ios_users": {
+          "value": "{\"interstitial_cooldown\":45}"
+        }
+      },
+      "valueType": "JSON"
+    },
+    "Taichi_Enabled": {
+      "defaultValue": {
+        "useInAppDefault": true
+      },
+      "valueType": "BOOLEAN"
+    }
+  },
+  "parameterGroups": {
+    "Metica": {
+      "description": "Metica experiment",
+      "parameters": {
+        "metica_assignment": {
+          "defaultValue": {
+            "value": "{\"experiment_id\":\"acme_blockpuzzle-20261016-50\",\"metica_percentage\":50,\"enabled\":true}"
+          },
+          "description": "Studio note",
+          "valueType": "STRING"
+        },
+        "metica_other": {
+          "defaultValue": {
+            "value": "1"
+          },
+          "valueType": "NUMBER"
+        }
+      }
+    }
+  },
+  "version": {
+    "versionNumber": "42",
+    "updateTime": "2026-10-14T10:00:00.000000Z",
+    "updateUser": {
+      "email": "someone@example.com"
+    },
+    "updateOrigin": "CONSOLE",
+    "updateType": "INCREMENTAL_UPDATE"
+  }
+}

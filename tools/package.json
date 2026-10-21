@@ -1,0 +1,16 @@
+{
+  "name": "metica-assignment-tool",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Read and update the metica_assignment Firebase Remote Config parameter.",
+  "license": "SEE LICENSE IN ../LICENSE.md",
+  "engines": {
+    "node": ">=18.3"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "google-auth-library": "^10.9.1"
+  }
+}

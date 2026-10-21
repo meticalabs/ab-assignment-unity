@@ -1,0 +1,11 @@
+{
+  "version": {
+    "versionNumber": "1",
+    "updateTime": "2026-10-14T10:00:00.000000Z",
+    "updateUser": {
+      "email": "someone@example.com"
+    },
+    "updateOrigin": "CONSOLE",
+    "updateType": "INCREMENTAL_UPDATE"
+  }
+}
