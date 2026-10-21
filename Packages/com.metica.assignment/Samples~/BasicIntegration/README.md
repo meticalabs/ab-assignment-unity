@@ -8,4 +8,4 @@ Three scripts that show the whole integration. They need the Firebase Remote Con
 | `MeticaAssignmentRemoteConfig.cs` | Reporting the Firebase fetch result with `ReportRemoteConfig` |
 | `MeticaAssignmentAds.cs` | Choosing the route with `Current.RunMetica`, the Metica arm, the MAX (Baseline) arm, `ReportAdsInit`, `TagPlacement` |
 
-Replace the `YOUR_...` values with your own. Call `MeticaAssignmentRemoteConfig.Fetch()` once Firebase is ready and `MeticaAssignmentAds.InitializeAsync()` when the game starts ads. The full steps are in the repository README.
+Replace the `YOUR_...` values with your own. Call `MeticaAssignmentRemoteConfig.Fetch()` once Firebase is ready and `MeticaAssignmentAds.InitializeAsync()` when the game starts ads. Call both on the main thread (for example from a MonoBehaviour), because the package's report calls are main-thread only. The full steps are in the repository README.

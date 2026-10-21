@@ -14,7 +14,7 @@ namespace Metica.Assignment {
     /// </summary>
     internal sealed class MeticaIngestEventSender {
         /// <summary>Sent as the sdkVersion query parameter. Keep equal to the version in package.json.</summary>
-        internal const string PackageVersion = "0.2.0";
+        internal const string PackageVersion = "1.0.0";
 
         internal const string ProductionBaseUrl = "https://api-global-gateway.prod-eu.metica.com";
         internal const string RelayBaseUrl = "https://relay.prod-eu.metica.com";

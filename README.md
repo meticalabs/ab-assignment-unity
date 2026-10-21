@@ -176,6 +176,7 @@ rc.FetchAsync(System.TimeSpan.Zero).ContinueWithOnMainThread(fetchTask => {
 ```
 
 - Start the fetch as early as possible. The sooner it finishes, the more first sessions get a group.
+- `TimeSpan.Zero` fetches a fresh value on every cold start. Firebase throttles an app that fetches more often than about 5 times an hour; a throttled fetch is reported as `FetchFailed` and the device keeps its saved value. If your game already uses a fetch interval, keep it.
 - Report to the package before your other handlers, so an exception in them cannot stop it.
 - Call it on the main thread (`ContinueWithOnMainThread` does this).
 
@@ -189,7 +190,7 @@ using Metica;
 using Metica.Ads;
 using Metica.Assignment;
 
-// Call when the game is ready to start ads (after your consent flow), not at app start.
+// Call on the main thread when the game is ready to start ads (after your consent flow), not at app start.
 public static async Task InitializeAdsAsync() {
     AssignmentResult assignment = MeticaAssignment.Current;
     if (assignment.RunMetica) {
@@ -209,15 +210,20 @@ private static async Task StartMetica(AssignmentResult assignment) {
     var mediation = new MeticaMediationInfo(MeticaMediationInfo.MeticaMediationType.MAX, MaxSdkKey);
 
     MeticaAssignment.ReportAdsInit(AdsInitStage.Started);
+    MeticaInitResponse response;
     try {
-        await MeticaSdk.InitializeAsync(config, mediation);
+        response = await MeticaSdk.InitializeAsync(config, mediation);
     } catch (System.Exception e) {
         MeticaAssignment.ReportAdsInit(AdsInitStage.Failed, e.Message);
         return;
     }
-    MeticaAssignment.ReportAdsInit(AdsInitStage.Succeeded);
+    // Metica's own group (TRIAL/HOLDOUT) and whether init fell back to a forced holdout.
+    MeticaAssignment.ReportAdsInit(AdsInitStage.Succeeded, null,
+        response.SmartFloors?.UserGroup.ToString(), response.SmartFloors?.IsForcedHoldout);
 }
 ```
+
+`MeticaSdk.InitializeAsync` does not throw when init fails. It returns a forced holdout instead, which is reported as `Succeeded` with `forced_holdout = true`, so pass those two values. The `catch` is only for unexpected exceptions.
 
 **Baseline arm (your MAX code).** Keep your existing MAX init; add the user id and the two `ReportAdsInit` calls.
 
@@ -289,7 +295,7 @@ Run a **development build on a device or emulator**. The Unity Editor and deskto
 | `Initialize` was called | `Events go to Metica Production ingestion for app <your app id>.` |
 | Firebase value arrived in time | `Remote config "<experiment_id>" received before the group was needed; it applies to this session.` |
 | Group decided, fresh install online | `Group metica, route metica, ...` or `Group baseline, route own, ...` with your experiment id and `source "remote_this_session"` |
-| Second launch | The same group, `source "cached_remote"` |
+| Second launch | The same group; `source "cached_remote"`, or `"remote_this_session"` if Firebase answered before ads started |
 | Firebase not answered yet when ads start | `Group unassigned, route own, ..., source "unassigned_waiting"`. The game uses its own ad code this session; the next session gets a group. |
 | Events reach Metica | `Sent <n> event(s) to Metica (HTTP 202, route ga).` on both routes |
 | Wrong app id or API key | `Metica ingestion rejected <n> event(s) with HTTP 401 ...` (or 403). Fix the values passed to `Initialize`. |
@@ -298,7 +304,7 @@ Run a **development build on a device or emulator**. The Unity Editor and deskto
 
 To test a fresh install on Android: `adb shell pm clear <your.package.name>`. This also creates a new user id, so the device may land in the other group.
 
-To force a route while testing (development builds and the Editor only), call `MeticaAssignment.SetDebugOverride(Group.Metica)` or `Group.Baseline`. It applies from the next launch and changes the route only, not the group label. `SetDebugOverride(null)` clears it.
+To force a route while testing (development builds and the Editor only), call `MeticaAssignment.SetDebugOverride(Group.Metica)` or `Group.Baseline`. It applies from the next launch and changes the route only, not the group label. It has no effect while the device is unassigned (no Firebase value saved yet). `SetDebugOverride(null)` clears it.
 
 ### Run the package tests (optional)
 
@@ -341,10 +347,10 @@ The group is decided the first time you read `Current` (or call `TagPlacement` /
 Not during a session. Between sessions the group only changes when you publish a new `experiment_id`, or after a reinstall (the user id is stored in PlayerPrefs and lost on reinstall).
 
 **Does `EventLogged` replace delivery to Metica?**
-No. The event is already queued for Metica before listeners run. `SetEventSink` / `IAssignmentEventSink` from 0.1.0 are obsolete and ignored.
+No. The event is already queued for Metica before listeners run.
 
 **What happens offline?**
-Events stay in a queue on the device (at most 100) and are sent later with retries. They leave the queue only after Metica accepts them.
+Events stay in a queue on the device while it is offline or Metica cannot be reached, and are sent later with retries. The queue holds at most 100 events; beyond that the oldest are dropped. A 4xx answer other than 408 or 429 (for example a wrong API key) drops the batch with an error log.
 
 **Can I call the API from a background thread?**
 `Initialize`, `ReportRemoteConfig`, `ReportAdsInit`, `SetConsentStatus`, `AddCustomUserId` and the first read of `Current` must be on the main thread; other threads get an error log and the call is ignored. Once the group is decided, `Current` and `TagPlacement` are safe from any thread, including ad revenue callbacks.

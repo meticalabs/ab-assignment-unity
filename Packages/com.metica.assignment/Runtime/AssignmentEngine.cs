@@ -734,7 +734,7 @@ namespace Metica.Assignment {
             return false;
         }
 
-        /// <summary>Always a double (50 is sent as 50.0), so the event field has one type in the warehouse.</summary>
+        /// <summary>Always a double (50 is sent as 50.0), so the event field always has one type.</summary>
         private static double PercentageValue(int basisPoints) {
             return basisPoints / 100.0;
         }

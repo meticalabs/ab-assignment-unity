@@ -31,7 +31,7 @@ namespace Metica.Assignment.Tests {
         [TestCase("studio_mygame-20260230-50", "50", TestName = "Rejects date 20260230")]
         [TestCase(Game + "50", "90", TestName = "Rejects percentage segment != metica_percentage")]
         [TestCase("studio_mygame_2026_10", "50", TestName = "Rejects studio_game_yyyy_mm format")]
-        [TestCase("rts_uplift_2026_10", "50", TestName = "Rejects the 2026-10-09 example id")]
+        [TestCase("studio_game_2026_10", "50", TestName = "Rejects an id without date and percentage segments")]
         [TestCase("", "50", TestName = "Rejects empty id")]
         public void RejectsInvalidExperimentIds(string experimentId, string percentage) {
             Assert.IsFalse(AssignmentConfig.TryParse(Config(experimentId, percentage), out _, out string error));

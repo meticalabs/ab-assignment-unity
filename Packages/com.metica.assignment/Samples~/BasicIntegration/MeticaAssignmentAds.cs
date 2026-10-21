@@ -38,6 +38,8 @@ namespace MeticaAssignmentSample {
             var mediation = new MeticaMediationInfo(MeticaMediationInfo.MeticaMediationType.MAX, MaxSdkKey);
 
             MeticaAssignment.ReportAdsInit(AdsInitStage.Started);
+            // MeticaSdk.InitializeAsync does not throw when init fails: it returns a forced holdout, which is
+            // reported as Succeeded with forcedHoldout = true. The catch is for unexpected exceptions.
             MeticaInitResponse response;
             try {
                 response = await MeticaSdk.InitializeAsync(config, mediation);
