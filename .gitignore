@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Node (tools/)
+node_modules/
+npm-debug.log*
+
+# Unity (if the package is opened inside a project)
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]serSettings/
+*.csproj
+*.sln
+
+# Credentials for the Firebase tool
+*credentials*.json
+*-firebase-adminsdk-*.json
