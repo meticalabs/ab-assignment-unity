@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0] - 2026-10-22
+
+An invalid custom domain is an error.
+
+- `MeticaAssignment.Initialize` throws `ArgumentException` when `MeticaAssignmentOptions.CustomDomain` is set but invalid, with the same validation message as the Metica SDK. Before, the package logged an error and sent to Metica production, as the SDK does. Now nothing is sent and the package stays uninitialised, so a later `Initialize` with a valid value works. Events logged in the meantime stay queued.
+- Null or blank `CustomDomain` still means Metica production. The validation rules are unchanged.
+
 ## [1.2.0] - 2026-10-22
 
 Custom domain support; development-only options removed.

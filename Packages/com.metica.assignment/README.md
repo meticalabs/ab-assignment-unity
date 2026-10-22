@@ -88,7 +88,8 @@ MeticaAssignment.Initialize(new MeticaAssignmentOptions(MeticaAppId, MeticaApiKe
 
 - The value is a host, optionally with a scheme and a port: `metica.example.com`, `https://metica.example.com`, `metica.example.com:8443`. Without a scheme, `https` is used. Requests then go to `https://metica.example.com/ingest/v1/events?...`.
 - The rules are the Metica SDK's: surrounding whitespace and a trailing `/` or `.` are removed and the value is lowercased. A path, query, fragment, credentials, whitespace inside, non-ASCII characters, `_` in the host, a scheme other than `https`/`http`, or a port outside 1–65535 make it invalid.
-- Null, empty or whitespace only means Metica production. An invalid value does not stop the game: the package logs an error starting with `Invalid custom domain` and sends to Metica production.
+- Null, empty or whitespace only means Metica production.
+- An invalid value makes `Initialize` throw an `ArgumentException` whose message names the broken rule and the value (never the API key), for example `customDomain must not contain a path, was '/metica': 'https://metica.example.com/metica'`. Nothing is sent, and the package stays uninitialised, so you can fix the value and call `Initialize` again; events logged in the meantime stay queued. Code after `Initialize` in the same method does not run unless you catch the exception. This is deliberately unlike the Metica SDK, which logs and falls back to Metica production: a cluster on its own domain must not have its events go to Metica production because of a typo.
 - With a custom domain there is no relay host; failed sends retry against the same domain.
 - `http` works only if the platform allows cleartext traffic to that host, and the package logs a warning.
 

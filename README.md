@@ -30,12 +30,12 @@ Requirements: Unity 2021.3 or later, Android or iOS. Your game needs Firebase Re
 Add this line to the `dependencies` in your project's `Packages/manifest.json`:
 
 ```json
-"com.metica.assignment": "https://github.com/meticalabs/metica-assignment-unity.git?path=/Packages/com.metica.assignment#v1.2.0"
+"com.metica.assignment": "https://github.com/meticalabs/metica-assignment-unity.git?path=/Packages/com.metica.assignment#v1.3.0"
 ```
 
 Or in Unity: **Window › Package Manager › + › Add package from git URL…** and paste the URL (the part in quotes after the colon).
 
-`#v1.2.0` pins the version. To update later, change the tag.
+`#v1.3.0` pins the version. To update later, change the tag.
 
 Notes:
 
@@ -129,7 +129,7 @@ public static class GameStartup {
 
 That is the only setup call. From then on the package sends its events to Metica by itself, for every group, without the Metica SDK. Events logged before `Initialize` wait in a queue on the device.
 
-**Custom domain (dedicated clusters).** If your Metica setup runs on a dedicated cluster under your own domain, set the same domain you give the Metica SDK: `new MeticaAssignmentOptions(MeticaAppId, MeticaApiKey) { CustomDomain = "metica.example.com" }`. Leave it unset otherwise. Accepted values and fallback rules are in the [package README](Packages/com.metica.assignment/README.md#custom-domain-dedicated-clusters).
+**Custom domain (dedicated clusters).** If your Metica setup runs on a dedicated cluster under your own domain, set the same domain you give the Metica SDK: `new MeticaAssignmentOptions(MeticaAppId, MeticaApiKey) { CustomDomain = "metica.example.com" }`. Leave it unset otherwise. An invalid value makes `Initialize` throw an `ArgumentException`. Accepted values are in the [package README](Packages/com.metica.assignment/README.md#custom-domain-dedicated-clusters).
 
 `MeticaAssignment.UserId` is a random id the package creates once per install. Use it as the user id in your other SDKs (Metica, MAX), so all data can be joined on the same id.
 
