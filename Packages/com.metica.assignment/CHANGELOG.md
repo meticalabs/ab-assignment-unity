@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.0] - 2026-10-22
+
+Events carry only the fields the uplift analysis needs.
+
+- Removed from every event: `appVersion`, `osVersion`, `buildNumber`, `deviceModel`, `deviceManufacturer`, `deviceType`, `deviceMemory`, `locale`, `localTimezone`, `country`. Each event now has `eventType`, `eventId`, `appId`, `eventTime`, `userId`, `platform` and `customPayload`. The event payloads are unchanged.
+- Removed the `sdkVersion` and `route` query parameters.
+- Events queued on the device by 1.0.0 are sent without their stored device fields.
+- Removed the `com.unity.modules.androidjni` dependency (it was only used to read device fields).
+- READMEs list exactly what is sent.
+
 ## [1.0.0] - 2026-10-21
 
 First public release.

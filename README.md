@@ -17,8 +17,9 @@ The package has no dependency on Firebase, AppLovin MAX or the Metica SDK. Your 
 4. [Check that it works](#4-check-that-it-works)
 5. [Kill switch and later changes](#5-kill-switch-and-later-changes)
 6. [FAQ and troubleshooting](#6-faq-and-troubleshooting)
-7. [Repository layout](#repository-layout)
-8. [License](#license)
+7. [What is sent](#what-is-sent)
+8. [Repository layout](#repository-layout)
+9. [License](#license)
 
 Requirements: Unity 2021.3 or later, Android or iOS. Your game needs Firebase Remote Config, the Metica SDK (for the Metica group) and its own ad code (for the Baseline group).
 
@@ -29,12 +30,12 @@ Requirements: Unity 2021.3 or later, Android or iOS. Your game needs Firebase Re
 Add this line to the `dependencies` in your project's `Packages/manifest.json`:
 
 ```json
-"com.metica.assignment": "https://github.com/meticalabs/metica-assignment-unity.git?path=/Packages/com.metica.assignment#v1.0.0"
+"com.metica.assignment": "https://github.com/meticalabs/metica-assignment-unity.git?path=/Packages/com.metica.assignment#v1.1.0"
 ```
 
 Or in Unity: **Window › Package Manager › + › Add package from git URL…** and paste the URL (the part in quotes after the colon).
 
-`#v1.0.0` pins the version. To update later, change the tag.
+`#v1.1.0` pins the version. To update later, change the tag.
 
 Notes:
 
@@ -296,7 +297,7 @@ Run a **development build on a device or emulator**. The Unity Editor and deskto
 | Group decided, fresh install online | `Group metica, route metica, ...` or `Group baseline, route own, ...` with your experiment id and `source "remote_this_session"` |
 | Second launch | The same group; `source "cached_remote"`, or `"remote_this_session"` if Firebase answered before ads started |
 | Firebase not answered yet when ads start | `Group unassigned, route own, ..., source "unassigned_waiting"`. The game uses its own ad code this session; the next session gets a group. |
-| Events reach Metica | `Sent <n> event(s) to Metica (HTTP 202, route ga).` on both routes |
+| Events reach Metica | `Sent <n> event(s) to Metica (HTTP 202, route ga).` on both routes (`ga` is the main host, `relay` the fallback) |
 | Wrong app id or API key | `Metica ingestion rejected <n> event(s) with HTTP 401 ...` (or 403). Fix the values passed to `Initialize`. |
 | `Initialize` missing | `MeticaAssignment.Initialize has not been called yet; events are queued until it is.` |
 | Ads shown | The placement in your ad logs starts with `metica|` or `baseline|` |
@@ -369,6 +370,24 @@ Check that Git is installed and that your machine (and build server) can read th
 The full technical reference (events and fields, delivery and retries, persistence keys, bucketing test vectors) is in the [package README](Packages/com.metica.assignment/README.md).
 
 ---
+
+## What is sent
+
+The package sends three events, `upliftAssignment`, `upliftConfigFetch` and `upliftAdsInit`, and only to Metica ingestion (`https://api-global-gateway.prod-eu.metica.com`, fallback `https://relay.prod-eu.metica.com`), with your Metica API key in the `X-API-KEY` header. Each event has exactly these fields:
+
+| Field | Value |
+|---|---|
+| `eventType` | The event name |
+| `eventId` | A random UUID per event, the same on every retry |
+| `appId` | Your Metica app id |
+| `eventTime` | When the event was logged, Unix epoch milliseconds |
+| `userId` | The random id the package generates on first launch (`MeticaAssignment.UserId`). It is not derived from any device or advertising id. |
+| `platform` | `android` or `ios` |
+| `customPayload` | The event's own fields (experiment id, group, route, config source, fetch and ads-init outcome, session id, UTC date; full list in the [package README](Packages/com.metica.assignment/README.md#events)) and `consent_status`. `custom_user_ids` holds only ids your game adds with `AddCustomUserId`. |
+
+The request URL repeats `appId`, `userId` and `platform` as query parameters.
+
+Nothing else is sent: no app or package version, no device model, manufacturer, OS version, memory, locale, time zone or country, and no advertising or vendor id (GAID, IDFA, IDFV). As with any HTTP request, Metica's servers see the device's IP address.
 
 ## Repository layout
 
