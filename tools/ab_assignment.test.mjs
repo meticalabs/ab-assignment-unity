@@ -405,3 +405,93 @@ test("get reports validity", async () => {
     assert.equal(code, 1);
     assert.ok(out.includes("INVALID"));
 });
+
+// Enable and experiment id protection
+const TOGGLE_ARGS = { command: "disable", parameter: NAME, condition: null, dryRun: false, yes: true, experimentId: null };
+
+test("enable keeps the experiment id and turns enabled on", async () => {
+    const template = loadTemplate();
+    template.parameterGroups.Metica.parameters[NAME].defaultValue.value = config(GAME + "50", "50", "false");
+    const client = new FakeClient(template);
+    const [code, out] = await runQuietly(ma.commandEnable, client, { ...TOGGLE_ARGS, command: "enable" });
+    assert.equal(code, 0);
+    const sent = JSON.parse(client.puts[1][0].parameterGroups.Metica.parameters[NAME].defaultValue.value);
+    assert.deepEqual(sent, { experiment_id: GAME + "50", metica_percentage: 50, enabled: true });
+    assert.ok(!out.includes("experiment_id changes"));
+});
+
+test("command line accepts enable", () => {
+    assert.equal(ma.parseCommandLine(["enable", "--project", "p"]).command, "enable");
+});
+
+test("set refuses a new experiment id", async () => {
+    const client = new FakeClient(loadTemplate());
+    const args = { parameter: NAME, condition: null, dryRun: false, yes: true, newExperiment: false };
+    await assert.rejects(runQuietly(ma.commandSet, client, args, config("acme_blockpuzzle-20261102-50", "50")),
+        { name: "ConfigError", message: /--new-experiment/ });
+    assert.deepEqual(client.puts, []);
+});
+
+test("set publishes a new experiment id with --new-experiment", async () => {
+    const client = new FakeClient(loadTemplate());
+    const args = ma.parseCommandLine(["set", "--project", "p", "--experiment-id", "acme_blockpuzzle-20261102-50",
+        "--new-experiment", "--yes"]);
+    const [code] = await runQuietly(ma.commandSet, client, args, config("acme_blockpuzzle-20261102-50", "50"));
+    assert.equal(code, 0);
+    const sent = JSON.parse(client.puts[1][0].parameterGroups.Metica.parameters[NAME].defaultValue.value);
+    assert.equal(sent.experiment_id, "acme_blockpuzzle-20261102-50");
+});
+
+test("set keeps the published experiment id", async () => {
+    const client = new FakeClient(loadTemplate());
+    const args = ma.parseCommandLine(["set", "--project", "p", "--experiment-id", GAME + "50", "--disabled", "--yes"]);
+    const [code] = await runQuietly(ma.commandSet, client, args, config(GAME + "50", "50", "false"));
+    assert.equal(code, 0);
+    const sent = JSON.parse(client.puts[1][0].parameterGroups.Metica.parameters[NAME].defaultValue.value);
+    assert.deepEqual(sent, { experiment_id: GAME + "50", metica_percentage: 50, enabled: false });
+});
+
+// Disable with a broken value
+
+test("disable with an experiment id repairs an invalid value", async () => {
+    const template = loadTemplate();
+    template.parameterGroups.Metica.parameters[NAME].defaultValue.value = config(GAME + "50", "90");
+    const client = new FakeClient(template);
+    const args = ma.parseCommandLine(["disable", "--project", "p", "--experiment-id", GAME + "12.5", "--yes"]);
+    const [code] = await runQuietly(ma.commandDisable, client, args);
+    assert.equal(code, 0);
+    const sent = JSON.parse(client.puts[1][0].parameterGroups.Metica.parameters[NAME].defaultValue.value);
+    assert.deepEqual(sent, { experiment_id: GAME + "12.5", metica_percentage: 12.5, enabled: false });
+});
+
+test("disable with an experiment id repairs a missing value", async () => {
+    const template = loadTemplate();
+    delete template.parameterGroups.Metica.parameters[NAME];
+    const client = new FakeClient(template);
+    const args = ma.parseCommandLine(["disable", "--project", "p", "--experiment-id", GAME + "50", "--yes"]);
+    const [code] = await runQuietly(ma.commandDisable, client, args);
+    assert.equal(code, 0);
+    const sent = JSON.parse(client.puts[1][0].parameters[NAME].defaultValue.value);
+    assert.deepEqual(sent, { experiment_id: GAME + "50", metica_percentage: 50, enabled: false });
+});
+
+test("disable without an experiment id explains an invalid value", async () => {
+    const template = loadTemplate();
+    template.parameterGroups.Metica.parameters[NAME].defaultValue.value = config(GAME + "50", "90");
+    await assert.rejects(runQuietly(ma.commandDisable, new FakeClient(template), TOGGLE_ARGS),
+        { name: "TemplateError", message: /--experiment-id/ });
+});
+
+test("disable keeps a valid value with its experiment id", async () => {
+    const client = new FakeClient(loadTemplate());
+    const args = ma.parseCommandLine(["disable", "--project", "p", "--experiment-id", GAME + "50", "--yes"]);
+    const [code] = await runQuietly(ma.commandDisable, client, args);
+    assert.equal(code, 0);
+    const sent = JSON.parse(client.puts[1][0].parameterGroups.Metica.parameters[NAME].defaultValue.value);
+    assert.deepEqual(sent, { experiment_id: GAME + "50", metica_percentage: 50, enabled: false });
+});
+
+test("disable rejects an experiment id that is not published", async () => {
+    const args = { ...TOGGLE_ARGS, experimentId: GAME + "12.5" };
+    await assert.rejects(runQuietly(ma.commandDisable, new FakeClient(loadTemplate()), args), ma.ConfigError);
+});
