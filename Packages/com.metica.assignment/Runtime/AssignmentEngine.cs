@@ -187,7 +187,7 @@ namespace Metica.Assignment {
                 return;
             }
             _sender.Configure(options, _platform);
-            AssignmentLog.Info("Events go to Metica " + options.Environment + " ingestion for app " + options.AppId + ".");
+            AssignmentLog.Info("Events go to Metica ingestion at " + _sender.BaseUrl + " for app " + options.AppId + ".");
             _sender.TrySend();
         }
 

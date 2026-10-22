@@ -10,7 +10,6 @@ namespace Metica.Assignment.Tests {
     public class IngestTests : AssignmentTestBase {
         private const string ProdEvents = "https://api-global-gateway.prod-eu.metica.com/ingest/v1/events";
         private const string RelayEvents = "https://relay.prod-eu.metica.com/ingest/v1/events";
-        private const string DevEvents = "https://dev-host.invalid/ingest/v1/events";
 
         private static readonly Regex LowercaseUuidV4 =
             new Regex("^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$");
@@ -73,19 +72,76 @@ namespace Metica.Assignment.Tests {
         }
 
         [Test]
-        public void DevelopmentAndCustomBaseUrlUseOneHost() {
+        public void CustomDomainIsNormalizedAndUsedAsTheOnlyHost() {
+            Transport.AutoStatus = null;
             NewBareProcess();
-            MeticaAssignment.Initialize(new MeticaAssignmentOptions("test-dev-app-id", "dev-key") {
-                Environment = MeticaEnvironment.Development
-            });
-            CacheConfig(ConfigA());
-            Assert.IsNotNull(MeticaAssignment.Current);
-            StringAssert.StartsWith(DevEvents + "?appId=test-dev-app-id&", Transport.Last.Url);
-
-            NewBareProcess();
-            MeticaAssignment.Initialize(new MeticaAssignmentOptions(AppId, ApiKey) { BaseUrl = "https://events.example.com/" });
+            MeticaAssignment.Initialize(new MeticaAssignmentOptions(AppId, ApiKey) { CustomDomain = " Events.Example.COM/ " });
             MeticaAssignment.ReportRemoteConfig(RemoteConfigStatus.FetchFailed, null, "offline");
-            StringAssert.StartsWith("https://events.example.com/ingest/v1/events?appId=testApp&", Transport.Last.Url);
+            const string customEvents = "https://events.example.com/ingest/v1/events";
+            StringAssert.StartsWith(customEvents + "?appId=testApp&", Transport.Last.Url);
+            Assert.AreEqual(ApiKey, Transport.Last.ApiKey);
+
+            Transport.Last.Fail(timedOut: true);
+            for (int i = 0; i < 3; i++) {
+                Clock.Advance(TimeSpan.FromMinutes(10));
+                MeticaAssignment.Tick();
+                Transport.Last.Fail();
+            }
+            Assert.AreEqual(4, Transport.Requests.Count);
+            Assert.IsTrue(Transport.Requests.All(r => r.Url.StartsWith(customEvents, StringComparison.Ordinal)),
+                "a custom domain has no relay");
+            CollectionAssert.IsEmpty(Errors);
+        }
+
+        [Test]
+        public void CustomDomainKeepsThePortAndScheme() {
+            NewBareProcess();
+            MeticaAssignment.Initialize(new MeticaAssignmentOptions(AppId, ApiKey) { CustomDomain = "http://localhost:8080" });
+            MeticaAssignment.ReportRemoteConfig(RemoteConfigStatus.FetchFailed, null, "offline");
+            StringAssert.StartsWith("http://localhost:8080/ingest/v1/events?appId=testApp&", Transport.Last.Url);
+            Assert.IsTrue(Warnings.Any(w => w.Contains("cleartext http")), "http is warned about");
+        }
+
+        [Test]
+        public void InvalidCustomDomainLogsAnErrorAndUsesProduction() {
+            Transport.AutoStatus = null;
+            NewBareProcess();
+            MeticaAssignment.Initialize(new MeticaAssignmentOptions(AppId, ApiKey) { CustomDomain = "https://events.example.com/metica" });
+            MeticaAssignment.ReportRemoteConfig(RemoteConfigStatus.FetchFailed, null, "offline");
+            StringAssert.StartsWith(ProdEvents + "?appId=testApp&", Transport.Last.Url);
+            Assert.AreEqual(1, Errors.Count(e => e.Contains("Invalid custom domain, falling back to default")));
+
+            Transport.Last.Fail(timedOut: true);
+            Clock.Advance(TimeSpan.FromMinutes(10));
+            MeticaAssignment.Tick();
+            StringAssert.StartsWith(RelayEvents, Transport.Last.Url, "the production fallback keeps the relay");
+        }
+
+        [Test]
+        public void BlankCustomDomainUsesProductionWithoutAnError() {
+            foreach (string blank in new[] { null, "", "   ", "\t\n" }) {
+                Transport.Requests.Clear();
+                NewBareProcess();
+                MeticaAssignment.Initialize(new MeticaAssignmentOptions(AppId, ApiKey) { CustomDomain = blank });
+                MeticaAssignment.ReportRemoteConfig(RemoteConfigStatus.FetchFailed, null, "offline");
+                StringAssert.StartsWith(ProdEvents + "?appId=testApp&", Transport.Last.Url);
+            }
+            CollectionAssert.IsEmpty(Errors);
+        }
+
+        [Test]
+        public void CustomDomainEqualToProductionKeepsTheRelayAsInTheSdk() {
+            Transport.AutoStatus = null;
+            NewBareProcess();
+            MeticaAssignment.Initialize(new MeticaAssignmentOptions(AppId, ApiKey) {
+                CustomDomain = "api-global-gateway.prod-eu.metica.com"
+            });
+            MeticaAssignment.ReportRemoteConfig(RemoteConfigStatus.FetchFailed, null, "offline");
+            StringAssert.StartsWith(ProdEvents, Transport.Last.Url);
+            Transport.Last.Fail(timedOut: true);
+            Clock.Advance(TimeSpan.FromMinutes(10));
+            MeticaAssignment.Tick();
+            StringAssert.StartsWith(RelayEvents, Transport.Last.Url);
         }
 
         [Test]

@@ -9,13 +9,12 @@ namespace Metica.Assignment {
     /// tables: POST {base}/ingest/v1/events with an X-API-KEY header and a {"events":[...]} body of at most 10 events.
     /// One request at a time, oldest events first. An event leaves the queue on a 2xx answer, or on a 4xx other than 408
     /// and 429 (ingestion rejected it; retrying cannot help). Anything else keeps it queued and retries with exponential
-    /// backoff capped at 5 minutes. In production the relay host takes over when the main host is unreachable or
-    /// stalls. Main thread only.
+    /// backoff capped at 5 minutes. On Metica production the relay host takes over when the main host is unreachable
+    /// or stalls; a custom domain has no relay. Main thread only.
     /// </summary>
     internal sealed class MeticaIngestEventSender {
         internal const string ProductionBaseUrl = "https://api-global-gateway.prod-eu.metica.com";
         internal const string RelayBaseUrl = "https://relay.prod-eu.metica.com";
-        internal const string DevelopmentBaseUrl = "https://dev-host.invalid";
 
         internal const int MaxBatchSize = 10;
         internal const long MaxBackoffMs = 300000;
@@ -62,6 +61,9 @@ namespace Metica.Assignment {
         }
 
         public bool IsConfigured => _hosts != null;
+
+        /// <summary>The base URL events go to first.</summary>
+        public string BaseUrl => _hosts[0].BaseUrl;
 
         /// <param name="platform">"android" or "ios"; null on any other platform (editor, desktop), where events are
         /// logged and discarded instead of sent.</param>
@@ -190,14 +192,14 @@ namespace Metica.Assignment {
             return (long)(Math.Min(exponential, MaxBackoffMs) * jitter);
         }
 
+        // As the SDK's IngestHostSelector.hostsFor: only Metica production gets the relay behind it. A custom domain is
+        // a single host, unless it resolves to the production URL itself.
         private static List<Host> HostsFor(MeticaAssignmentOptions options) {
-            if (!string.IsNullOrEmpty(options.BaseUrl)) {
-                return new List<Host> { new Host("primary", options.BaseUrl.TrimEnd('/')) };
+            string baseUrl = CustomDomainValidator.ResolveBaseUrl(options.CustomDomain, ProductionBaseUrl);
+            if (baseUrl == ProductionBaseUrl) {
+                return new List<Host> { new Host("ga", ProductionBaseUrl), new Host("relay", RelayBaseUrl) };
             }
-            if (options.Environment == MeticaEnvironment.Development) {
-                return new List<Host> { new Host("primary", DevelopmentBaseUrl) };
-            }
-            return new List<Host> { new Host("ga", ProductionBaseUrl), new Host("relay", RelayBaseUrl) };
+            return new List<Host> { new Host("primary", baseUrl) };
         }
 
         private static string BuildUrl(Host host, string appId, string userId, string platform) {

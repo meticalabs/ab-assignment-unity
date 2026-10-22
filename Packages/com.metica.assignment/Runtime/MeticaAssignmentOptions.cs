@@ -1,15 +1,5 @@
 namespace Metica.Assignment {
     /// <summary>
-    /// The Metica ingestion environment the events go to.
-    /// </summary>
-    public enum MeticaEnvironment {
-        /// <summary>Metica production ingestion, with the relay host as fallback.</summary>
-        Production,
-        /// <summary>Metica DEV ingestion. Only for tests with a DEV app id and key.</summary>
-        Development
-    }
-
-    /// <summary>
     /// Settings for <see cref="MeticaAssignment.Initialize"/>: the game's Metica app id and API key (the same values the
     /// game gives the Metica SDK).
     /// </summary>
@@ -25,13 +15,12 @@ namespace Metica.Assignment {
         /// <summary>The game's Metica API key, sent as the X-API-KEY header.</summary>
         public string ApiKey { get; }
 
-        /// <summary>Production by default.</summary>
-        public MeticaEnvironment Environment { get; set; } = MeticaEnvironment.Production;
-
         /// <summary>
-        /// Optional ingestion base URL (scheme and host, no path) that replaces the environment's host, e.g. a custom
-        /// domain. Null uses <see cref="Environment"/>. With a custom URL there is no fallback host.
+        /// Optional: the domain of a dedicated Metica cluster, the same value the game gives the Metica SDK. A host
+        /// with an optional scheme (https when omitted) and port, e.g. "api.example.com" or
+        /// "https://api.example.com:8443"; no path, query or credentials. Null or blank sends to Metica production.
+        /// An invalid value is logged as an error and Metica production is used.
         /// </summary>
-        public string BaseUrl { get; set; }
+        public string CustomDomain { get; set; }
     }
 }
