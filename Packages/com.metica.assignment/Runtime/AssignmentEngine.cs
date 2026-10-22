@@ -32,11 +32,10 @@ namespace Metica.Assignment {
         private readonly IClock _clock;
         private readonly EventQueue _queue;
         private readonly MeticaIngestEventSender _sender;
-        private readonly Func<Dictionary<string, object>> _collectEnvironment;
+        private readonly string _platform;
         private readonly List<Action<string, IReadOnlyDictionary<string, object>>> _listeners =
             new List<Action<string, IReadOnlyDictionary<string, object>>>();
 
-        private Dictionary<string, object> _environment;
         private int _mainThreadId = -1;
 
         // Passed on in consent_status on every event; never changes what is sent.
@@ -65,13 +64,13 @@ namespace Metica.Assignment {
         private bool _adsInitTimeoutSent;
         private bool _adsInitOutcomeSent;
 
-        /// <param name="collectEnvironment">Device and app fields for every event; read once per process.</param>
+        /// <param name="platform">"android" or "ios"; null on other platforms, where events are not sent.</param>
         /// <param name="jitter">Backoff jitter factor in [0.5, 1.0].</param>
-        public AssignmentEngine(IKeyValueStore store, IClock clock, IIngestTransport transport,
-            Func<Dictionary<string, object>> collectEnvironment, Func<double> jitter) {
+        public AssignmentEngine(IKeyValueStore store, IClock clock, IIngestTransport transport, string platform,
+            Func<double> jitter) {
             _store = store;
             _clock = clock;
-            _collectEnvironment = collectEnvironment;
+            _platform = platform;
             _queue = new EventQueue(store);
             _sender = new MeticaIngestEventSender(_queue, clock, transport, jitter, () => Labels.For(_consentStatus));
         }
@@ -187,8 +186,7 @@ namespace Metica.Assignment {
             if (!EnsureSession()) {
                 return;
             }
-            Environment().TryGetValue("platform", out object platform);
-            _sender.Configure(options, platform as string);
+            _sender.Configure(options, _platform);
             AssignmentLog.Info("Events go to Metica " + options.Environment + " ingestion for app " + options.AppId + ".");
             _sender.TrySend();
         }
@@ -661,8 +659,7 @@ namespace Metica.Assignment {
                 EventId = Guid.NewGuid().ToString("D"),
                 EventTimeMs = ToUnixMs(_clock.UtcNow),
                 UserId = _userId,
-                Payload = payload,
-                Environment = Environment()
+                Payload = payload
             };
             _queue.Enqueue(e);
             NotifyListeners(eventName, e.Payload);
@@ -689,31 +686,13 @@ namespace Metica.Assignment {
             }
         }
 
-        /// <summary>Device and app fields, read once per process and capped like the SDK caps them.</summary>
-        private Dictionary<string, object> Environment() {
-            if (_environment == null) {
-                Dictionary<string, object> fields;
-                try {
-                    fields = _collectEnvironment();
-                } catch (Exception e) {
-                    AssignmentLog.Error("Could not read the device fields; events are sent without them: " + e);
-                    fields = new Dictionary<string, object>();
-                }
-                EventValidation.CapStrings(fields);
-                _environment = fields;
-            }
-            return _environment;
-        }
-
         /// <summary>
-        /// An event stored by 0.1.0 has only a name and payload. It gets a new id, the current time, user and device
-        /// fields.
+        /// An event stored by 0.1.0 has only a name and payload. It gets a new id, the current time and the user.
         /// </summary>
         private void CompleteOldEvent(QueuedEvent e) {
             e.EventId = Guid.NewGuid().ToString("D");
             e.EventTimeMs = ToUnixMs(_clock.UtcNow);
             e.UserId = _userId;
-            e.Environment = Environment();
             // 0.1.0 cut errors at 256 characters; ingestion would accept a longer string and drop it later.
             EventValidation.CapStrings(e.Payload);
         }

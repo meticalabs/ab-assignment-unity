@@ -146,26 +146,13 @@ namespace Metica.Assignment.Tests {
         protected const string AppId = "testApp";
         protected const string ApiKey = "test-api-key";
 
-        /// <summary>Device fields as an Android device would give them.</summary>
-        protected static readonly Dictionary<string, object> AndroidEnvironment = new Dictionary<string, object> {
-            { "appVersion", "1.0.34" },
-            { "platform", "android" },
-            { "osVersion", "16" },
-            { "buildNumber", "BP2A.250605.015" },
-            { "deviceModel", "CPH2487" },
-            { "deviceManufacturer", "OnePlus" },
-            { "deviceType", "phone" },
-            { "deviceMemory", 7226L },
-            { "locale", "en-US" },
-            { "localTimezone", "Europe/Ljubljana" },
-            { "country", "si" }
-        };
+        protected const string Android = "android";
 
         protected FakeStore Store;
         protected FakeClock Clock;
         protected FakeListener Sink;
         private protected FakeTransport Transport;
-        protected Dictionary<string, object> Environment;
+        protected string Platform;
         protected List<string> Errors;
         protected List<string> Warnings;
         private Action<LogType, string> _previousHandler;
@@ -176,7 +163,7 @@ namespace Metica.Assignment.Tests {
             Clock = new FakeClock(Start);
             Sink = new FakeListener();
             Transport = new FakeTransport();
-            Environment = AndroidEnvironment;
+            Platform = Android;
             Errors = new List<string>();
             Warnings = new List<string>();
             _previousHandler = AssignmentLog.Handler;
@@ -194,7 +181,7 @@ namespace Metica.Assignment.Tests {
         [TearDown]
         public void TearDownBase() {
             AssignmentLog.Handler = _previousHandler;
-            MeticaAssignment.ResetForTests(new FakeStore(), new FakeClock(Start), new FakeTransport(), AndroidEnvironment);
+            MeticaAssignment.ResetForTests(new FakeStore(), new FakeClock(Start), new FakeTransport(), Android);
         }
 
         protected static string Config(string experimentId, string percentage, bool enabled) {
@@ -216,7 +203,7 @@ namespace Metica.Assignment.Tests {
 
         /// <summary>A new process over the same storage, not initialized and without the listener.</summary>
         protected void NewBareProcess() {
-            MeticaAssignment.ResetForTests(Store, Clock, Transport, Environment);
+            MeticaAssignment.ResetForTests(Store, Clock, Transport, Platform);
         }
 
         /// <summary>

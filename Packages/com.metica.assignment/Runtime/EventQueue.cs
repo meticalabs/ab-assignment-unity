@@ -3,8 +3,8 @@ using System.Collections.Generic;
 
 namespace Metica.Assignment {
     /// <summary>
-    /// One event waiting for Metica ingestion. The id, time, user and device fields are fixed when the event is logged,
-    /// so a retry sends the same event.
+    /// One event waiting for Metica ingestion. The id, time and user are fixed when the event is logged, so a retry
+    /// sends the same event.
     /// </summary>
     internal sealed class QueuedEvent {
         public string Name;
@@ -15,8 +15,6 @@ namespace Metica.Assignment {
         public string UserId;
         /// <summary>Flat; consent_status is added at send time.</summary>
         public Dictionary<string, object> Payload;
-        /// <summary>Device and app fields sent at the top level of the event.</summary>
-        public Dictionary<string, object> Environment;
     }
 
     /// <summary>
@@ -33,7 +31,6 @@ namespace Metica.Assignment {
         private const string IdField = "id";
         private const string TimeField = "time";
         private const string UserField = "user";
-        private const string EnvironmentField = "env";
 
         private readonly IKeyValueStore _store;
         private readonly List<QueuedEvent> _events = new List<QueuedEvent>();
@@ -45,8 +42,9 @@ namespace Metica.Assignment {
         public int Count => _events.Count;
 
         /// <summary>
-        /// Loads events left over from earlier sessions. <paramref name="completeOldEvent"/> fills in the id, time, user
-        /// and device fields of an event stored by 0.1.0, which kept only the name and payload.
+        /// Loads events left over from earlier sessions. <paramref name="completeOldEvent"/> fills in the id, time and
+        /// user of an event stored by 0.1.0, which kept only the name and payload. The device fields stored by 1.0.0
+        /// ("env") are ignored, so those events are sent without them.
         /// </summary>
         public void Load(Action<QueuedEvent> completeOldEvent) {
             _events.Clear();
@@ -71,12 +69,10 @@ namespace Metica.Assignment {
                 if (entry.TryGetValue(IdField, out object id) && id is string eventId &&
                     entry.TryGetValue(TimeField, out object time) && time is JsonNumber eventTime &&
                     eventTime.ToLongOrDouble() is long eventTimeMs &&
-                    entry.TryGetValue(UserField, out object user) && user is string userId &&
-                    entry.TryGetValue(EnvironmentField, out object env) && env is Dictionary<string, object> environment) {
+                    entry.TryGetValue(UserField, out object user) && user is string userId) {
                     e.EventId = eventId;
                     e.EventTimeMs = eventTimeMs;
                     e.UserId = userId;
-                    e.Environment = ToValues(environment);
                 } else {
                     completeOldEvent(e);
                     completed = true;
@@ -91,7 +87,6 @@ namespace Metica.Assignment {
         public void Enqueue(QueuedEvent e) {
             // Round-trip through JSON so values have the same types whether the event is sent now or after a restart.
             e.Payload = RoundTrip(e.Payload);
-            e.Environment = RoundTrip(e.Environment);
             _events.Add(e);
             while (_events.Count > Capacity) {
                 AssignmentLog.Warning("Event queue is full; dropped the oldest event " + _events[0].Name + ".");
@@ -131,8 +126,7 @@ namespace Metica.Assignment {
                     { PayloadField, e.Payload },
                     { IdField, e.EventId },
                     { TimeField, e.EventTimeMs },
-                    { UserField, e.UserId },
-                    { EnvironmentField, e.Environment }
+                    { UserField, e.UserId }
                 });
             }
             _store.SetString(StoreKey, Json.Write(items));

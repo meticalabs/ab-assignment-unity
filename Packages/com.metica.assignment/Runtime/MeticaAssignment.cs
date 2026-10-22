@@ -171,10 +171,8 @@ namespace Metica.Assignment {
         /// Starts a new process-like state over the given storage, clock, transport and device fields, with no backoff
         /// jitter. Tests only.
         /// </summary>
-        internal static void ResetForTests(IKeyValueStore store, IClock clock, IIngestTransport transport,
-            Dictionary<string, object> environment) {
-            _engine = new AssignmentEngine(store, clock, transport, () => new Dictionary<string, object>(environment),
-                () => 1.0);
+        internal static void ResetForTests(IKeyValueStore store, IClock clock, IIngestTransport transport, string platform) {
+            _engine = new AssignmentEngine(store, clock, transport, platform, () => 1.0);
         }
 
         // Runs first in play mode, on the main thread. Also resets statics when domain reload is disabled.
@@ -194,7 +192,18 @@ namespace Metica.Assignment {
         private static AssignmentEngine CreateEngine() {
             var random = new System.Random();
             return new AssignmentEngine(new PlayerPrefsStore(), new SystemClock(), new UnityWebRequestTransport(),
-                DeviceEnvironment.Collect, () => 0.5 + 0.5 * random.NextDouble());
+                CurrentPlatform(), () => 0.5 + 0.5 * random.NextDouble());
+        }
+
+        // Events are sent from Android and iOS players only.
+        private static string CurrentPlatform() {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            return "android";
+#elif UNITY_IOS && !UNITY_EDITOR
+            return "ios";
+#else
+            return null;
+#endif
         }
 
         private static bool IsTagged(string placement) {

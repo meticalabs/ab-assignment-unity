@@ -13,9 +13,6 @@ namespace Metica.Assignment {
     /// stalls. Main thread only.
     /// </summary>
     internal sealed class MeticaIngestEventSender {
-        /// <summary>Sent as the sdkVersion query parameter. Keep equal to the version in package.json.</summary>
-        internal const string PackageVersion = "1.0.0";
-
         internal const string ProductionBaseUrl = "https://api-global-gateway.prod-eu.metica.com";
         internal const string RelayBaseUrl = "https://relay.prod-eu.metica.com";
         internal const string DevelopmentBaseUrl = "https://dev-host.invalid";
@@ -89,7 +86,7 @@ namespace Metica.Assignment {
             foreach (QueuedEvent e in batch) {
                 ids.Add(e.EventId);
             }
-            string body = BuildBody(batch, _appId, _consentStatus());
+            string body = BuildBody(batch, _appId, _platform, _consentStatus());
             if (_platform == null) {
                 AssignmentLog.Info("Not sent on this platform: " + body);
                 _queue.Remove(ids);
@@ -204,15 +201,15 @@ namespace Metica.Assignment {
         }
 
         private static string BuildUrl(Host host, string appId, string userId, string platform) {
-            return host.BaseUrl + "/ingest/v1/events?appId=" + Encode(appId) + "&sdkVersion=" + Encode(PackageVersion) +
-                   "&userId=" + Encode(userId) + "&platform=" + platform + "&route=" + host.Id;
+            return host.BaseUrl + "/ingest/v1/events?appId=" + Encode(appId) + "&userId=" + Encode(userId) +
+                   "&platform=" + platform;
         }
 
         /// <summary>
-        /// The request body. Each event: eventType (the event name), eventId, appId, eventTime (epoch ms), userId,
-        /// customPayload (with consent_status), then the device fields at the top level.
+        /// The request body. Each event has only what the uplift analysis needs: eventType (the event name), eventId,
+        /// appId, eventTime (epoch ms), userId, platform and customPayload (with consent_status).
         /// </summary>
-        internal static string BuildBody(List<QueuedEvent> batch, string appId, string consentStatus) {
+        internal static string BuildBody(List<QueuedEvent> batch, string appId, string platform, string consentStatus) {
             var events = new List<Dictionary<string, object>>(batch.Count);
             foreach (QueuedEvent e in batch) {
                 var payload = new Dictionary<string, object>(e.Payload);
@@ -223,11 +220,9 @@ namespace Metica.Assignment {
                     { "appId", appId },
                     { "eventTime", e.EventTimeMs },
                     { "userId", e.UserId },
+                    { "platform", platform },
                     { "customPayload", payload }
                 };
-                foreach (KeyValuePair<string, object> pair in e.Environment) {
-                    item[pair.Key] = pair.Value;
-                }
                 events.Add(item);
             }
             return JsonConvert.SerializeObject(new Dictionary<string, object> { { "events", events } }, Formatting.None);

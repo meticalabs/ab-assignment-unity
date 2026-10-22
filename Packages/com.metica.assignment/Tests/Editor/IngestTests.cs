@@ -18,7 +18,7 @@ namespace Metica.Assignment.Tests {
         // ---- request shape ----
 
         [Test]
-        public void BodyMatchesTheSdkWireFormat() {
+        public void BodyHasOnlyTheMinimalFields() {
             var e = new QueuedEvent {
                 Name = "upliftAssignment",
                 EventId = "134e4d62-421c-437a-975d-b3b5545ddfbe",
@@ -34,39 +34,32 @@ namespace Metica.Assignment.Tests {
                     { "activity_date_utc", "2026-10-21" },
                     { "fetch_latency_ms", 812L },
                     { "error", null }
-                },
-                Environment = new Dictionary<string, object>(AndroidEnvironment)
+                }
             };
-            string body = MeticaIngestEventSender.BuildBody(new List<QueuedEvent> { e }, "test-app-id", "granted");
+            string body = MeticaIngestEventSender.BuildBody(new List<QueuedEvent> { e }, "test-app-id", Android, "granted");
             const string golden =
                 "{\"events\":[{\"eventType\":\"upliftAssignment\",\"eventId\":\"134e4d62-421c-437a-975d-b3b5545ddfbe\"," +
                 "\"appId\":\"test-app-id\",\"eventTime\":1792592101176,\"userId\":\"6c0f2b0e9d6a4f7f8a0c1d2e3f405162\"," +
-                "\"customPayload\":{\"experiment_id\":\"studio_mygame-20261016-50\",\"group\":\"metica\",\"metica_route\":true," +
+                "\"platform\":\"android\",\"customPayload\":{\"experiment_id\":\"studio_mygame-20261016-50\",\"group\":\"metica\",\"metica_route\":true," +
                 "\"metica_percentage\":50.0,\"config_source\":\"remote_this_session\",\"session_id\":\"18e09451d68345aeacfe1f44cfdbb6e1\"," +
-                "\"activity_date_utc\":\"2026-10-21\",\"fetch_latency_ms\":812,\"error\":null,\"consent_status\":\"granted\"}," +
-                "\"appVersion\":\"1.0.34\",\"platform\":\"android\",\"osVersion\":\"16\",\"buildNumber\":\"BP2A.250605.015\"," +
-                "\"deviceModel\":\"CPH2487\",\"deviceManufacturer\":\"OnePlus\",\"deviceType\":\"phone\",\"deviceMemory\":7226," +
-                "\"locale\":\"en-US\",\"localTimezone\":\"Europe/Ljubljana\",\"country\":\"si\"}]}";
+                "\"activity_date_utc\":\"2026-10-21\",\"fetch_latency_ms\":812,\"error\":null,\"consent_status\":\"granted\"}}]}";
             Assert.AreEqual(golden, body);
         }
 
         [Test]
-        public void ProductionRequestHasTheSdkUrlKeyAndFields() {
+        public void ProductionRequestHasTheMinimalUrlAndFields() {
             string user = FindUserId(ExperimentA, 5000, Group.Metica);
             SetUserId(user);
             AssignmentResult a = StartSessionCached(ConfigA());
 
             Assert.AreEqual(1, Transport.Requests.Count);
             FakeRequest request = Transport.Last;
-            Assert.AreEqual(ProdEvents + "?appId=testApp&sdkVersion=" + MeticaIngestEventSender.PackageVersion + "&userId=" +
-                            user + "&platform=android&route=ga", request.Url);
+            Assert.AreEqual(ProdEvents + "?appId=testApp&userId=" + user + "&platform=android", request.Url);
             Assert.AreEqual(ApiKey, request.ApiKey);
             JObject e = (JObject)request.Events[0];
             CollectionAssert.AreEqual(new[] {
-                "eventType", "eventId", "appId", "eventTime", "userId", "customPayload", "appVersion", "platform",
-                "osVersion", "buildNumber", "deviceModel", "deviceManufacturer", "deviceType", "deviceMemory", "locale",
-                "localTimezone", "country"
-            }, e.Properties().Select(p => p.Name).ToArray(), "no meticaNativeSdk, meticaUnitySdk, isHoldout or gaid");
+                "eventType", "eventId", "appId", "eventTime", "userId", "platform", "customPayload"
+            }, e.Properties().Select(p => p.Name).ToArray(), "no device or SDK version fields");
             Assert.AreEqual("upliftAssignment", (string)e["eventType"]);
             StringAssert.IsMatch(LowercaseUuidV4.ToString(), (string)e["eventId"]);
             Assert.AreEqual(AppId, (string)e["appId"]);
@@ -80,7 +73,7 @@ namespace Metica.Assignment.Tests {
         }
 
         [Test]
-        public void DevelopmentAndCustomBaseUrlUseOneHostWithRoutePrimary() {
+        public void DevelopmentAndCustomBaseUrlUseOneHost() {
             NewBareProcess();
             MeticaAssignment.Initialize(new MeticaAssignmentOptions("test-dev-app-id", "dev-key") {
                 Environment = MeticaEnvironment.Development
@@ -88,25 +81,16 @@ namespace Metica.Assignment.Tests {
             CacheConfig(ConfigA());
             Assert.IsNotNull(MeticaAssignment.Current);
             StringAssert.StartsWith(DevEvents + "?appId=test-dev-app-id&", Transport.Last.Url);
-            StringAssert.EndsWith("&route=primary", Transport.Last.Url);
 
             NewBareProcess();
             MeticaAssignment.Initialize(new MeticaAssignmentOptions(AppId, ApiKey) { BaseUrl = "https://events.example.com/" });
             MeticaAssignment.ReportRemoteConfig(RemoteConfigStatus.FetchFailed, null, "offline");
             StringAssert.StartsWith("https://events.example.com/ingest/v1/events?appId=testApp&", Transport.Last.Url);
-            StringAssert.EndsWith("&route=primary", Transport.Last.Url);
         }
 
         [Test]
         public void QueryValuesAreEncodedLikeTheSdk() {
             Assert.AreEqual("a%20b*-_.%7E%2F%C3%A9", MeticaIngestEventSender.Encode(" a b*-_.~/é "));
-        }
-
-        [Test]
-        public void PackageVersionConstantMatchesPackageJson() {
-            var package = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(MeticaAssignment).Assembly);
-            Assert.IsNotNull(package);
-            Assert.AreEqual(package.version, MeticaIngestEventSender.PackageVersion);
         }
 
         // ---- validation ----
@@ -351,6 +335,20 @@ namespace Metica.Assignment.Tests {
         }
 
         [Test]
+        public void DeviceFieldsStoredBy100AreNotSent() {
+            Store.Values[EventQueue.StoreKey] =
+                "[{\"name\":\"upliftConfigFetch\",\"payload\":{\"fetch_status\":\"success\"}," +
+                "\"id\":\"134e4d62-421c-437a-975d-b3b5545ddfbe\",\"time\":1792592101176,\"user\":\"u1\"," +
+                "\"env\":{\"appVersion\":\"1.0.34\",\"platform\":\"android\",\"deviceModel\":\"CPH2487\"}}]";
+            NewProcess();
+            JObject e = (JObject)Transport.Requests[0].Events[0];
+            Assert.AreEqual("134e4d62-421c-437a-975d-b3b5545ddfbe", (string)e["eventId"], "same event, same id");
+            CollectionAssert.AreEqual(new[] {
+                "eventType", "eventId", "appId", "eventTime", "userId", "platform", "customPayload"
+            }, e.Properties().Select(p => p.Name).ToArray());
+        }
+
+        [Test]
         public void PauseSendsAtOnceInsteadOfWaitingForTheBackoff() {
             Transport.AutoStatus = 503;
             StartSessionCached(ConfigA());
@@ -364,7 +362,7 @@ namespace Metica.Assignment.Tests {
 
         [Test]
         public void UnsupportedPlatformLogsAndDiscardsInsteadOfSending() {
-            Environment = new Dictionary<string, object> { { "appVersion", "1.0" } };
+            Platform = null;
             StartSessionCached(ConfigA());
             Assert.AreEqual(0, Transport.Requests.Count);
             Assert.AreEqual(0, StoredQueue().Count);
@@ -385,7 +383,6 @@ namespace Metica.Assignment.Tests {
             Clock.Advance(TimeSpan.FromMinutes(10));
             MeticaAssignment.Tick();
             StringAssert.StartsWith(RelayEvents, Transport.Last.Url);
-            StringAssert.EndsWith("&route=relay", Transport.Last.Url);
 
             Transport.Last.Answer(502);
             Clock.Advance(TimeSpan.FromMinutes(10));
