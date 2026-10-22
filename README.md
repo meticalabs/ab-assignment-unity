@@ -331,7 +331,7 @@ Then **Window › General › Test Runner › EditMode** and run `AB.Assignment.
 |---|---|
 | Stop Metica ads for everyone | Publish the same value with `"enabled": false`, or `node ab_assignment.mjs disable --project <id>` |
 | Turn Metica ads back on | Publish the same value with `"enabled": true`, or `node ab_assignment.mjs enable --project <id>` |
-| Change the percentage | Publish a new `experiment_id` with today's date and the new percentage. All players are split again. |
+| Change the percentage | Publish a new `experiment_id` with today's date and the new percentage (with the tool: `set ... --new-experiment`). All players are split again. |
 
 - With `enabled: false` every device runs your own ad code. Groups and labels stay the same, so the data stays comparable.
 - A new value applies on the device's next launch (or in the current session, if it arrives before ads start). Expect a few days until all active players have it.
