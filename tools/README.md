@@ -2,15 +2,15 @@
 
 Reads and updates the Firebase Remote Config parameter `metica_assignment` from the command line. It is an alternative to the Firebase console steps in the [repository README](../README.md#2-set-up-the-firebase-parameter).
 
-The tool is one Node script, [`metica_assignment.mjs`](metica_assignment.mjs). The tests use the templates in [`testdata/`](testdata/): `sample_template.json` (a template with groups and conditions) and `new_project_template.json` (a template with no parameters yet).
+The tool is one Node script, [`ab_assignment.mjs`](ab_assignment.mjs). The tests use the templates in [`testdata/`](testdata/): `sample_template.json` (a template with groups and conditions) and `new_project_template.json` (a template with no parameters yet).
 
 What it does:
 
 - Uses the official Remote Config REST API: `GET` and `PUT https://firebaseremoteconfig.googleapis.com/v1/projects/<project-id>/remoteConfig`, with the template's ETag sent as `If-Match`. If someone publishes in between, the `PUT` is rejected and nothing changes. Run the command again.
 - Changes only this one parameter. All other parameters, conditions and parameter groups are sent back exactly as they were read. If the parameter is in a group (for example `Metica`), it stays in that group. A new parameter is added at the top level; you can move it to a group in the console later. This also works on a new project whose template has no parameters yet.
-- Checks the value with the same rules the game uses (`AssignmentConfig.TryParse` in `com.metica.assignment`) before anything is sent.
+- Checks the value with the same rules the game uses (`AssignmentConfig.TryParse` in `com.abassignment.unity`) before anything is sent.
 - Sets the data type to **JSON** and adds a description if the parameter has none.
-- Shows a diff and asks before publishing (`--yes` skips the question). Then it asks Firebase to check the template (`?validateOnly=true`), and only then publishes. The new template version gets the description `Set metica_assignment with metica_assignment.mjs`.
+- Shows a diff and asks before publishing (`--yes` skips the question). Then it asks Firebase to check the template (`?validateOnly=true`), and only then publishes. The new template version gets the description `Set metica_assignment with ab_assignment.mjs`.
 
 ## Setup
 
@@ -21,7 +21,7 @@ Node 18.3 or later (for `util.parseArgs`). The only package is `google-auth-libr
 ```bash
 cd <path-to-tools>
 npm install
-node metica_assignment.mjs --help
+node ab_assignment.mjs --help
 ```
 
 ## Getting credentials
@@ -145,7 +145,7 @@ The examples below assume you ran the setup and are in `<path-to-tools>`.
 Show the published value and check it (exit code 1 if it is missing or invalid). This only reads:
 
 ```bash
-node metica_assignment.mjs get --project <project-id> \
+node ab_assignment.mjs get --project <project-id> \
     --credentials <credentials.json>
 ```
 
@@ -154,7 +154,7 @@ The other examples leave out `--credentials` (so `GOOGLE_APPLICATION_CREDENTIALS
 Start an experiment with 50% of devices in the Metica group. The date defaults to today (UTC):
 
 ```bash
-node metica_assignment.mjs set --project <project-id> \
+node ab_assignment.mjs set --project <project-id> \
     --studio <studio> --game <game> --percentage 50
 
 # Sets the value: {"experiment_id":"<studio>_<game>-<today>-50","metica_percentage":50,"enabled":true}
@@ -163,27 +163,27 @@ node metica_assignment.mjs set --project <project-id> \
 Same, with a fixed date, and only print the diff:
 
 ```bash
-node metica_assignment.mjs set --project <project-id> \
+node ab_assignment.mjs set --project <project-id> \
     --studio <studio> --game <game> --percentage 12.5 --date <YYYYMMDD> --dry-run
 ```
 
 Give the experiment id directly (the percentage is taken from its last segment):
 
 ```bash
-node metica_assignment.mjs set --project <project-id> \
+node ab_assignment.mjs set --project <project-id> \
     --experiment-id <experiment-id>
 ```
 
 Kill switch: keep `experiment_id` and `metica_percentage`, set `enabled` to `false`:
 
 ```bash
-node metica_assignment.mjs disable --project <project-id>
+node ab_assignment.mjs disable --project <project-id>
 ```
 
 Turn routing back on with the same experiment id:
 
 ```bash
-node metica_assignment.mjs set --project <project-id> \
+node ab_assignment.mjs set --project <project-id> \
     --experiment-id <experiment-id> --enabled
 ```
 

@@ -1,5 +1,5 @@
 {
-  "name": "metica-assignment-tool",
+  "name": "ab-assignment-tool",
   "version": "1.0.0",
   "private": true,
   "description": "Read and update the metica_assignment Firebase Remote Config parameter.",

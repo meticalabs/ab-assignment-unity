@@ -1,4 +1,4 @@
-# Metica Assignment License
+# AB Assignment License
 
 Copyright (c) 2026 Metica. All rights reserved.
 

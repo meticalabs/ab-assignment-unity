@@ -1,5 +1,41 @@
 # Changelog
 
+## [2.0.0] - 2026-10-22
+
+Renamed from Metica Assignment to AB Assignment. The package id, assembly, namespace and the two public types changed; behaviour, events and stored data did not.
+
+### Migration
+
+In `Packages/manifest.json`, replace
+
+```json
+"com.metica.assignment": "https://github.com/meticalabs/metica-assignment-unity.git?path=/Packages/com.metica.assignment#v1.3.0"
+```
+
+with
+
+```json
+"com.abassignment.unity": "https://github.com/meticalabs/ab-assignment-unity.git?path=/Packages/com.abassignment.unity#v2.0.0"
+```
+
+An embedded copy moves from `Packages/com.metica.assignment` to `Packages/com.abassignment.unity`. A `testables` entry changes the same way.
+
+A sample imported from 1.x (`Assets/Samples/Metica Assignment/...`) is not updated by the package upgrade and stops compiling. Delete it and import the sample again, or apply the table below to it and to any code copied from it.
+
+| 1.x | 2.0.0 |
+|---|---|
+| `com.metica.assignment` | `com.abassignment.unity` |
+| `using Metica.Assignment;` | `using AB.Assignment;` |
+| asmdef reference `Metica.Assignment` | `AB.Assignment` |
+| `MeticaAssignment` | `ABAssignment` |
+| `MeticaAssignmentOptions` | `ABAssignmentOptions` |
+| Log prefix `[MeticaAssignment]` | `[ABAssignment]` |
+| Firebase tool `tools/metica_assignment.mjs` | `tools/ab_assignment.mjs` |
+| Sample namespace `MeticaAssignmentSample` | `ABAssignmentSample` |
+| Sample classes `MeticaAssignmentStartup`, `MeticaAssignmentRemoteConfig`, `MeticaAssignmentAds` | `ABAssignmentStartup`, `ABAssignmentRemoteConfig`, `ABAssignmentAds` |
+
+Unchanged: the Firebase parameter `metica_assignment` and its fields, `Group.Metica` and `RunMetica`, the event names and payloads, and the PlayerPrefs keys (`metica_assignment_*_v1`), so a device keeps its user id, group and queued events when it updates from 1.x. The `asmdef` and script GUIDs are unchanged.
+
 ## [1.3.0] - 2026-10-22
 
 An invalid custom domain is an error.
