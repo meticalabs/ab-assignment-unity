@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.0] - 2026-10-22
+
+Custom domain support; development-only options removed.
+
+- Added `MeticaAssignmentOptions.CustomDomain` for setups that run Metica on a dedicated cluster under their own domain. It takes the same value and follows the same rules as the Metica SDK's custom domain: a host with an optional scheme and port, normalised to `scheme://host[:port]`. Null or blank means Metica production. An invalid value is logged as an error and Metica production is used. A custom domain has no relay host.
+- Removed `MeticaEnvironment` and `MeticaAssignmentOptions.Environment`. Events go to Metica production unless `CustomDomain` is set.
+- Removed `MeticaAssignmentOptions.BaseUrl`. Use `CustomDomain`; unlike `BaseUrl`, it rejects a path.
+- The `Initialize` log line now names the ingestion host: `Events go to Metica ingestion at <base URL> for app <app id>.`
+
 ## [1.1.0] - 2026-10-22
 
 Events carry only the fields the uplift analysis needs.

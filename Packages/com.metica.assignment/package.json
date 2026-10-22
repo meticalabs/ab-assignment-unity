@@ -1,6 +1,6 @@
 {
   "name": "com.metica.assignment",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "displayName": "Metica Assignment",
   "description": "Deterministic on-device assignment of devices to a Metica group or a Baseline group, driven by one Firebase Remote Config parameter. Sends its events straight to Metica ingestion. No dependency on Firebase, AppLovin MAX or the Metica SDK.",
   "unity": "2021.3",
