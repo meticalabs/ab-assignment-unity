@@ -70,6 +70,12 @@ The request has the format of a Metica SDK custom event, so the events are store
 
 - `POST https://api-global-gateway.prod-eu.metica.com/ingest/v1/events?appId=<appId>&userId=<userId>&platform=android|ios`, headers `Content-Type: application/json` and `X-API-KEY: <apiKey>`.
 - Body `{"events":[...]}`, at most 10 events per request.
+- Ingestion answers `202` before it validates the body, so the library applies the SDK's rules before queueing: event name camelCase letters only, flat payload of at most 100 keys, no nested objects or arrays, finite numbers. Strings longer than 200 characters are cut to 200, ending in `...[truncated]`. An event that breaks a rule is logged as an error and not sent.
+- One request at a time, oldest events first. An event leaves the persisted queue (`metica_assignment_queue_v1`, at most 100 events, oldest dropped first) only when ingestion answers 2xx, or a 4xx other than 408 and 429; a 401/403 (wrong key) or other 4xx is logged as an error and the batch is dropped, as the SDK does. Network errors, timeouts (20 s), 408, 429 and 5xx keep the batch (logged at Info) and retry after `2^n` seconds with 50–100 % jitter, at most 5 minutes. The queue is also sent when the app goes to the background or loses focus.
+- If the app is killed while a request is in flight, the batch is sent again on the next start with the same `eventId`s.
+- Production only: after two sends in a row without an HTTP answer, or one timeout, requests move to `https://relay.prod-eu.metica.com`, as in the SDK. A 5xx from the relay counts as no answer.
+- `MeticaAssignmentOptions.Environment = MeticaEnvironment.Development` sends to `https://dev-host.invalid`; use a DEV app id and key. `BaseUrl` replaces the host (no fallback).
+- Events logged before `Initialize` wait in the queue. In the Unity Editor and on platforms other than Android and iOS, events are logged and discarded instead of sent. Development builds log each request body (never the key).
 
 #### What is sent
 
@@ -86,12 +92,6 @@ Each event has exactly these fields, and nothing else:
 | `customPayload` | The event's fields from the table above, plus `consent_status` |
 
 No app, package or SDK version, no device fields (model, manufacturer, OS version or build, phone/tablet, memory, locale, time zone, country) and no advertising or vendor id (GAID, IDFA, IDFV). Their columns stay null. Events queued on the device by 1.0.0 are also sent without their device fields.
-- Ingestion answers `202` before it validates the body, so the library applies the SDK's rules before queueing: event name camelCase letters only, flat payload of at most 100 keys, no nested objects or arrays, finite numbers. Strings longer than 200 characters are cut to 200, ending in `...[truncated]`. An event that breaks a rule is logged as an error and not sent.
-- One request at a time, oldest events first. An event leaves the persisted queue (`metica_assignment_queue_v1`, at most 100 events, oldest dropped first) only when ingestion answers 2xx, or a 4xx other than 408 and 429; a 401/403 (wrong key) or other 4xx is logged as an error and the batch is dropped, as the SDK does. Network errors, timeouts (20 s), 408, 429 and 5xx keep the batch (logged at Info) and retry after `2^n` seconds with 50–100 % jitter, at most 5 minutes. The queue is also sent when the app goes to the background or loses focus.
-- If the app is killed while a request is in flight, the batch is sent again on the next start with the same `eventId`s.
-- Production only: after two sends in a row without an HTTP answer, or one timeout, requests move to `https://relay.prod-eu.metica.com`, as in the SDK. A 5xx from the relay counts as no answer.
-- `MeticaAssignmentOptions.Environment = MeticaEnvironment.Development` sends to `https://dev-host.invalid`; use a DEV app id and key. `BaseUrl` replaces the host (no fallback).
-- Events logged before `Initialize` wait in the queue. In the Unity Editor and on platforms other than Android and iOS, events are logged and discarded instead of sent. Development builds log each request body (never the key).
 
 ### Forwarding to your own analytics
 

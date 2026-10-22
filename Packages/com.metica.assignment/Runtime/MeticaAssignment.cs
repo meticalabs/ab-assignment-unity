@@ -168,7 +168,7 @@ namespace Metica.Assignment {
         }
 
         /// <summary>
-        /// Starts a new process-like state over the given storage, clock, transport and device fields, with no backoff
+        /// Starts a new process-like state over the given storage, clock, transport and platform, with no backoff
         /// jitter. Tests only.
         /// </summary>
         internal static void ResetForTests(IKeyValueStore store, IClock clock, IIngestTransport transport, string platform) {
