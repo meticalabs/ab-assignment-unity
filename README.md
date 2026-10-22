@@ -30,12 +30,12 @@ Requirements: Unity 2021.3 or later, Android or iOS. Your game needs Firebase Re
 Add this line to the `dependencies` in your project's `Packages/manifest.json`:
 
 ```json
-"com.metica.assignment": "https://github.com/meticalabs/metica-assignment-unity.git?path=/Packages/com.metica.assignment#v1.1.0"
+"com.metica.assignment": "https://github.com/meticalabs/metica-assignment-unity.git?path=/Packages/com.metica.assignment#v1.2.0"
 ```
 
 Or in Unity: **Window › Package Manager › + › Add package from git URL…** and paste the URL (the part in quotes after the colon).
 
-`#v1.1.0` pins the version. To update later, change the tag.
+`#v1.2.0` pins the version. To update later, change the tag.
 
 Notes:
 
@@ -128,6 +128,8 @@ public static class GameStartup {
 ```
 
 That is the only setup call. From then on the package sends its events to Metica by itself, for every group, without the Metica SDK. Events logged before `Initialize` wait in a queue on the device.
+
+**Custom domain (dedicated clusters).** If your Metica setup runs on a dedicated cluster under your own domain, set the same domain you give the Metica SDK: `new MeticaAssignmentOptions(MeticaAppId, MeticaApiKey) { CustomDomain = "metica.example.com" }`. Leave it unset otherwise. Accepted values and fallback rules are in the [package README](Packages/com.metica.assignment/README.md#custom-domain-dedicated-clusters).
 
 `MeticaAssignment.UserId` is a random id the package creates once per install. Use it as the user id in your other SDKs (Metica, MAX), so all data can be joined on the same id.
 
@@ -292,12 +294,12 @@ Run a **development build on a device or emulator**. The Unity Editor and deskto
 
 | Check | What you should see |
 |---|---|
-| `Initialize` was called | `Events go to Metica Production ingestion for app <your app id>.` |
+| `Initialize` was called | `Events go to Metica ingestion at https://api-global-gateway.prod-eu.metica.com for app <your app id>.` (your own domain if you set `CustomDomain`) |
 | Firebase value arrived in time | `Remote config "<experiment_id>" received before the group was needed; it applies to this session.` |
 | Group decided, fresh install online | `Group metica, route metica, ...` or `Group baseline, route own, ...` with your experiment id and `source "remote_this_session"` |
 | Second launch | The same group; `source "cached_remote"`, or `"remote_this_session"` if Firebase answered before ads started |
 | Firebase not answered yet when ads start | `Group unassigned, route own, ..., source "unassigned_waiting"`. The game uses its own ad code this session; the next session gets a group. |
-| Events reach Metica | `Sent <n> event(s) to Metica (HTTP 202, route ga).` on both routes (`ga` is the main host, `relay` the fallback) |
+| Events reach Metica | `Sent <n> event(s) to Metica (HTTP 202, route ga).` on both routes (`ga` is the main host, `relay` the fallback; `primary` with a custom domain) |
 | Wrong app id or API key | `Metica ingestion rejected <n> event(s) with HTTP 401 ...` (or 403). Fix the values passed to `Initialize`. |
 | `Initialize` missing | `MeticaAssignment.Initialize has not been called yet; events are queued until it is.` |
 | Ads shown | The placement in your ad logs starts with `metica|` or `baseline|` |
@@ -373,7 +375,7 @@ The full technical reference (events and fields, delivery and retries, persisten
 
 ## What is sent
 
-The package sends three events, `upliftAssignment`, `upliftConfigFetch` and `upliftAdsInit`, and only to Metica ingestion (`https://api-global-gateway.prod-eu.metica.com`, fallback `https://relay.prod-eu.metica.com`), with your Metica API key in the `X-API-KEY` header. Each event has exactly these fields:
+The package sends three events, `upliftAssignment`, `upliftConfigFetch` and `upliftAdsInit`, and only to Metica ingestion (`https://api-global-gateway.prod-eu.metica.com`, fallback `https://relay.prod-eu.metica.com`, or your custom domain if you set one), with your Metica API key in the `X-API-KEY` header. Each event has exactly these fields:
 
 | Field | Value |
 |---|---|

@@ -73,9 +73,24 @@ The request has the format of a Metica SDK custom event, so the events are store
 - Ingestion answers `202` before it validates the body, so the library applies the SDK's rules before queueing: event name camelCase letters only, flat payload of at most 100 keys, no nested objects or arrays, finite numbers. Strings longer than 200 characters are cut to 200, ending in `...[truncated]`. An event that breaks a rule is logged as an error and not sent.
 - One request at a time, oldest events first. An event leaves the persisted queue (`metica_assignment_queue_v1`, at most 100 events, oldest dropped first) only when ingestion answers 2xx, or a 4xx other than 408 and 429; a 401/403 (wrong key) or other 4xx is logged as an error and the batch is dropped, as the SDK does. Network errors, timeouts (20 s), 408, 429 and 5xx keep the batch (logged at Info) and retry after `2^n` seconds with 50–100 % jitter, at most 5 minutes. The queue is also sent when the app goes to the background or loses focus.
 - If the app is killed while a request is in flight, the batch is sent again on the next start with the same `eventId`s.
-- Production only: after two sends in a row without an HTTP answer, or one timeout, requests move to `https://relay.prod-eu.metica.com`, as in the SDK. A 5xx from the relay counts as no answer.
-- `MeticaAssignmentOptions.Environment = MeticaEnvironment.Development` sends to `https://dev-host.invalid`; use a DEV app id and key. `BaseUrl` replaces the host (no fallback).
+- Metica production only: after two sends in a row without an HTTP answer, or one timeout, requests move to `https://relay.prod-eu.metica.com`, as in the SDK. A 5xx from the relay counts as no answer. A custom domain has no relay (see below).
 - Events logged before `Initialize` wait in the queue. In the Unity Editor and on platforms other than Android and iOS, events are logged and discarded instead of sent. Development builds log each request body (never the key).
+
+#### Custom domain (dedicated clusters)
+
+If your Metica setup runs on a dedicated cluster under your own domain, give the package the same domain you give the Metica SDK:
+
+```csharp
+MeticaAssignment.Initialize(new MeticaAssignmentOptions(MeticaAppId, MeticaApiKey) {
+    CustomDomain = "metica.example.com"
+});
+```
+
+- The value is a host, optionally with a scheme and a port: `metica.example.com`, `https://metica.example.com`, `metica.example.com:8443`. Without a scheme, `https` is used. Requests then go to `https://metica.example.com/ingest/v1/events?...`.
+- The rules are the Metica SDK's: surrounding whitespace and a trailing `/` or `.` are removed and the value is lowercased. A path, query, fragment, credentials, whitespace inside, non-ASCII characters, `_` in the host, a scheme other than `https`/`http`, or a port outside 1–65535 make it invalid.
+- Null, empty or whitespace only means Metica production. An invalid value does not stop the game: the package logs an error starting with `Invalid custom domain` and sends to Metica production.
+- With a custom domain there is no relay host; failed sends retry against the same domain.
+- `http` works only if the platform allows cleartext traffic to that host, and the package logs a warning.
 
 #### What is sent
 
