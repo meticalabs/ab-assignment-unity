@@ -436,6 +436,38 @@ namespace AB.Assignment.Tests {
         }
 
         [Test]
+        public void SkippedLowMemoryThenStartedThenSucceededSendsBothOutcomes() {
+            StartSessionCached(ConfigA());
+            ABAssignment.ReportAdsInit(AdsInitStage.Started);
+            ABAssignment.ReportAdsInit(AdsInitStage.SkippedLowMemory);
+            ABAssignment.ReportAdsInit(AdsInitStage.Started);
+            Clock.Advance(TimeSpan.FromMilliseconds(1500));
+            ABAssignment.ReportAdsInit(AdsInitStage.Succeeded, null, "TRIAL", false);
+
+            Assert.AreEqual(2, AdsInits().Count, "skipped_low_memory must not block the real outcome");
+            Assert.AreEqual("skipped_low_memory", AdsInits()[0].Payload["outcome"]);
+            Assert.AreEqual("success", AdsInits()[1].Payload["outcome"]);
+            Assert.AreEqual(1500L, AdsInits()[1].Payload["elapsed_ms"], "elapsed is measured from the second Started");
+        }
+
+        [Test]
+        public void PendingTimeoutWorksForTheAttemptAfterSkippedLowMemory() {
+            StartSessionCached(ConfigA());
+            ABAssignment.ReportAdsInit(AdsInitStage.Started);
+            ABAssignment.ReportAdsInit(AdsInitStage.SkippedLowMemory);
+            ABAssignment.ReportAdsInit(AdsInitStage.Started);
+            Clock.Advance(TimeSpan.FromMilliseconds(29999));
+            ABAssignment.Tick();
+            Assert.AreEqual(1, AdsInits().Count);
+            Clock.Advance(TimeSpan.FromMilliseconds(1));
+            ABAssignment.Tick();
+            ABAssignment.Tick();
+            Assert.AreEqual(2, AdsInits().Count, "the retry attempt can time out");
+            Assert.AreEqual("pending_timeout", AdsInits()[1].Payload["outcome"]);
+            Assert.AreEqual(30000L, AdsInits()[1].Payload["elapsed_ms"], "the timeout counts from the second Started");
+        }
+
+        [Test]
         public void OffThreadCallIsLoggedAndIgnored() {
             StartSessionCached(ConfigA());
             var thread = new Thread(() => ABAssignment.ReportAdsInit(AdsInitStage.Succeeded));

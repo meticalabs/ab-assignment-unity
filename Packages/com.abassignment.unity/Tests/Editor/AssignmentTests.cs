@@ -290,6 +290,22 @@ namespace AB.Assignment.Tests {
             Assert.IsFalse(result.RunMetica);
         }
 
+        [Test]
+        public void KillSwitchWinsOverTheDebugOverride() {
+            string user = FindUserId(ExperimentA, 5000, Group.Baseline);
+            SetUserId(user);
+            StartSession(ConfigA());
+            ABAssignment.SetDebugOverride(Group.Metica);
+
+            AssignmentResult disabled = StartSession(ConfigA(false));
+            Assert.IsFalse(disabled.Enabled);
+            Assert.IsFalse(disabled.RunMetica, "the kill switch wins over the debug override");
+            Assert.AreEqual(false, Assignments()[Assignments().Count - 1].Payload["metica_route"]);
+
+            AssignmentResult enabled = StartSession(ConfigA());
+            Assert.IsTrue(enabled.RunMetica, "the override still applies when enabled is true");
+        }
+
         // ---- debug override, placement tags, threading, custom ids ----
 
         [Test]
@@ -351,6 +367,10 @@ namespace AB.Assignment.Tests {
             Assert.AreEqual("unassigned|2XCoins", tag);
             Assert.IsFalse(ABAssignment.TryGetCurrent(out _));
             Assert.IsFalse(Store.AccessedFromOtherThread);
+            Assert.AreEqual(1, Errors.Count);
+            StringAssert.Contains("not decided yet", Errors[0], "the group was not decided");
+            StringAssert.Contains("Read Current", Errors[0], "the error says what to do");
+            StringAssert.Contains("main thread", Errors[0]);
         }
 
         [Test]
