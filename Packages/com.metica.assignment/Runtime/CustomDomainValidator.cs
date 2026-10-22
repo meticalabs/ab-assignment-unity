@@ -23,24 +23,20 @@ namespace Metica.Assignment {
 
         /// <summary>
         /// The base URL for <paramref name="raw"/>: the normalised custom domain, or <paramref name="defaultBaseUrl"/>
-        /// when it is null or blank (as the SDK's Unity bridges drop blank values) or invalid. Never throws: an invalid
-        /// value is logged as an error, as the SDK does.
+        /// when it is null or blank (as the SDK's Unity bridges drop blank values). An invalid value throws
+        /// <see cref="ArgumentException"/> instead of falling back as the SDK does, so a wrong domain is noticed at
+        /// once rather than sending events to Metica production.
         /// </summary>
         public static string ResolveBaseUrl(string raw, string defaultBaseUrl) {
             if (string.IsNullOrWhiteSpace(raw)) {
                 return defaultBaseUrl;
             }
-            try {
-                string normalized = Normalize(raw);
-                AssignmentLog.Info("Using custom Metica domain: " + normalized);
-                if (normalized.StartsWith(Http + SchemeSeparator, StringComparison.Ordinal)) {
-                    AssignmentLog.Warning("customDomain uses cleartext http; the platform's network security settings may block it: " + normalized);
-                }
-                return normalized;
-            } catch (ArgumentException e) {
-                AssignmentLog.Error("Invalid custom domain, falling back to default: " + e.Message);
-                return defaultBaseUrl;
+            string normalized = Normalize(raw);
+            AssignmentLog.Info("Using custom Metica domain: " + normalized);
+            if (normalized.StartsWith(Http + SchemeSeparator, StringComparison.Ordinal)) {
+                AssignmentLog.Warning("customDomain uses cleartext http; the platform's network security settings may block it: " + normalized);
             }
+            return normalized;
         }
 
         /// <summary>

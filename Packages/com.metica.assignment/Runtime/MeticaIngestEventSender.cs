@@ -65,13 +65,14 @@ namespace Metica.Assignment {
         /// <summary>The base URL events go to first.</summary>
         public string BaseUrl => _hosts[0].BaseUrl;
 
+        /// <param name="baseUrl">Metica production, or the normalised custom domain.</param>
         /// <param name="platform">"android" or "ios"; null on any other platform (editor, desktop), where events are
         /// logged and discarded instead of sent.</param>
-        public void Configure(MeticaAssignmentOptions options, string platform) {
+        public void Configure(MeticaAssignmentOptions options, string baseUrl, string platform) {
             _appId = options.AppId;
             _apiKey = options.ApiKey;
             _platform = platform;
-            _hosts = HostsFor(options);
+            _hosts = HostsFor(baseUrl);
             _hostIndex = 0;
             if (platform == null) {
                 AssignmentLog.Warning("Events are not sent from this platform (only Android and iOS); they are logged and discarded.");
@@ -194,8 +195,7 @@ namespace Metica.Assignment {
 
         // As the SDK's IngestHostSelector.hostsFor: only Metica production gets the relay behind it. A custom domain is
         // a single host, unless it resolves to the production URL itself.
-        private static List<Host> HostsFor(MeticaAssignmentOptions options) {
-            string baseUrl = CustomDomainValidator.ResolveBaseUrl(options.CustomDomain, ProductionBaseUrl);
+        private static List<Host> HostsFor(string baseUrl) {
             if (baseUrl == ProductionBaseUrl) {
                 return new List<Host> { new Host("ga", ProductionBaseUrl), new Host("relay", RelayBaseUrl) };
             }

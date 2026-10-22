@@ -149,24 +149,11 @@ namespace Metica.Assignment.Tests {
         // ---- resolution ----
 
         [Test]
-        public void ResolveFallsBackOnBlankAndInvalidAndNeverThrows() {
-            Action<UnityEngine.LogType, string> previous = AssignmentLog.Handler;
-            int errors = 0;
-            AssignmentLog.Handler = (type, message) => {
-                if (type == UnityEngine.LogType.Error) {
-                    errors++;
-                }
-            };
-            try {
-                Assert.AreEqual("https://default", CustomDomainValidator.ResolveBaseUrl(null, "https://default"));
-                Assert.AreEqual("https://default", CustomDomainValidator.ResolveBaseUrl(" \t", "https://default"));
-                Assert.AreEqual(0, errors, "blank is the same as not set");
-                Assert.AreEqual("https://default", CustomDomainValidator.ResolveBaseUrl("api.customer.com/path", "https://default"));
-                Assert.AreEqual(1, errors);
-                Assert.AreEqual("https://api.customer.com", CustomDomainValidator.ResolveBaseUrl("API.customer.com", "https://default"));
-            } finally {
-                AssignmentLog.Handler = previous;
-            }
+        public void ResolveKeepsTheDefaultForBlankAndThrowsOnInvalid() {
+            Assert.AreEqual("https://default", CustomDomainValidator.ResolveBaseUrl(null, "https://default"));
+            Assert.AreEqual("https://default", CustomDomainValidator.ResolveBaseUrl(" \t", "https://default"));
+            Assert.Throws<ArgumentException>(() => CustomDomainValidator.ResolveBaseUrl("api.customer.com/path", "https://default"));
+            Assert.AreEqual("https://api.customer.com", CustomDomainValidator.ResolveBaseUrl("API.customer.com", "https://default"));
         }
     }
 }

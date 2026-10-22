@@ -103,18 +103,58 @@ namespace Metica.Assignment.Tests {
         }
 
         [Test]
-        public void InvalidCustomDomainLogsAnErrorAndUsesProduction() {
-            Transport.AutoStatus = null;
+        public void InvalidCustomDomainThrowsAndSendsNothingAndACorrectedCallWorks() {
             NewBareProcess();
-            MeticaAssignment.Initialize(new MeticaAssignmentOptions(AppId, ApiKey) { CustomDomain = "https://events.example.com/metica" });
             MeticaAssignment.ReportRemoteConfig(RemoteConfigStatus.FetchFailed, null, "offline");
-            StringAssert.StartsWith(ProdEvents + "?appId=testApp&", Transport.Last.Url);
-            Assert.AreEqual(1, Errors.Count(e => e.Contains("Invalid custom domain, falling back to default")));
+            int queued = StoredQueue().Count;
+            Assert.AreEqual(1, queued, "logged before Initialize");
+            Warnings.Clear();
 
-            Transport.Last.Fail(timedOut: true);
+            var e = Assert.Throws<ArgumentException>(() => MeticaAssignment.Initialize(
+                new MeticaAssignmentOptions(AppId, ApiKey) { CustomDomain = "https://events.example.com/metica" }));
+            Assert.AreEqual("customDomain must not contain a path, was '/metica': 'https://events.example.com/metica'", e.Message);
+            StringAssert.DoesNotContain(ApiKey, e.Message);
+
             Clock.Advance(TimeSpan.FromMinutes(10));
             MeticaAssignment.Tick();
-            StringAssert.StartsWith(RelayEvents, Transport.Last.Url, "the production fallback keeps the relay");
+            MeticaAssignment.FlushEvents();
+            Assert.AreEqual(0, Transport.Requests.Count, "no fallback to production, nothing sent");
+            Assert.AreEqual(queued, StoredQueue().Count, "the queue is unchanged");
+            CollectionAssert.IsEmpty(Warnings, "not treated as a second Initialize");
+
+            MeticaAssignment.Initialize(new MeticaAssignmentOptions(AppId, ApiKey) { CustomDomain = "events.example.com" });
+            Assert.AreEqual(1, Transport.Requests.Count);
+            StringAssert.StartsWith("https://events.example.com/ingest/v1/events?appId=testApp&", Transport.Last.Url);
+            Assert.AreEqual(0, StoredQueue().Count);
+        }
+
+        [Test]
+        public void EachCustomDomainRejectRuleThrowsFromInitialize() {
+            string[,] cases = {
+                { "api customer.com", "customDomain must not contain whitespace" },
+                { "api.metica\u3002com", "customDomain must be ASCII only" },
+                { "ftp://api.customer.com", "customDomain scheme must be https or http" },
+                { "https://", "customDomain is not a valid host" },
+                { "api_customer.com", "customDomain host contains invalid characters" },
+                // Mono's Uri already refuses a leading dot and an empty label, before the explicit checks.
+                { ".api.customer.com", "customDomain is not a valid host" },
+                { "api..customer.com", "customDomain is not a valid host" },
+                { "https://user:pass@api.customer.com", "customDomain must not contain credentials" },
+                { "https://api.customer.com?env=test", "customDomain must not contain a query string" },
+                { "https://api.customer.com#frag", "customDomain must not contain a fragment" },
+                { "https://api.customer.com/metica", "customDomain must not contain a path" },
+                { "api.customer.com:0", "customDomain port must be between 1 and 65535" }
+            };
+            NewBareProcess();
+            for (int i = 0; i < cases.GetLength(0); i++) {
+                string raw = cases[i, 0];
+                var e = Assert.Throws<ArgumentException>(() => MeticaAssignment.Initialize(
+                    new MeticaAssignmentOptions(AppId, ApiKey) { CustomDomain = raw }), "raw: '" + raw + "'");
+                StringAssert.StartsWith(cases[i, 1], e.Message, "raw: '" + raw + "'");
+                StringAssert.DoesNotContain(ApiKey, e.Message);
+            }
+            MeticaAssignment.ReportRemoteConfig(RemoteConfigStatus.FetchFailed, null, "offline");
+            Assert.AreEqual(0, Transport.Requests.Count, "still not initialised, nothing sent");
         }
 
         [Test]

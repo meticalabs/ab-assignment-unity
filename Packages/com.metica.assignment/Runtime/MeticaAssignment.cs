@@ -40,6 +40,10 @@ namespace Metica.Assignment {
         /// Call it once, as early as possible (before the first scene loads is best). Events logged before it are kept
         /// in a persisted queue and sent once it is called. Main thread.
         /// </summary>
+        /// <exception cref="ArgumentException"><see cref="MeticaAssignmentOptions.CustomDomain"/> is set but invalid.
+        /// Nothing is sent and, if this was the first Initialize, the library stays uninitialised, so Initialize can be
+        /// called again with a valid value. After a successful Initialize the first settings stay in use.
+        /// </exception>
         public static void Initialize(MeticaAssignmentOptions options) {
             _engine.Initialize(options);
         }

@@ -19,7 +19,7 @@ namespace Metica.Assignment {
         /// Optional: the domain of a dedicated Metica cluster, the same value the game gives the Metica SDK. A host
         /// with an optional scheme (https when omitted) and port, e.g. "api.example.com" or
         /// "https://api.example.com:8443"; no path, query or credentials. Null or blank sends to Metica production.
-        /// An invalid value is logged as an error and Metica production is used.
+        /// An invalid value makes <see cref="MeticaAssignment.Initialize"/> throw <see cref="System.ArgumentException"/>.
         /// </summary>
         public string CustomDomain { get; set; }
     }

@@ -179,6 +179,8 @@ namespace Metica.Assignment {
                 AssignmentLog.Error("Initialize needs options with a non-empty AppId and ApiKey; call ignored. Events stay queued.");
                 return;
             }
+            // Throws on an invalid custom domain before anything changes, so a corrected call can follow.
+            string baseUrl = CustomDomainValidator.ResolveBaseUrl(options.CustomDomain, MeticaIngestEventSender.ProductionBaseUrl);
             if (_sender.IsConfigured) {
                 AssignmentLog.Warning("Initialize was called more than once; the second call is ignored.");
                 return;
@@ -186,7 +188,7 @@ namespace Metica.Assignment {
             if (!EnsureSession()) {
                 return;
             }
-            _sender.Configure(options, _platform);
+            _sender.Configure(options, baseUrl, _platform);
             AssignmentLog.Info("Events go to Metica ingestion at " + _sender.BaseUrl + " for app " + options.AppId + ".");
             _sender.TrySend();
         }
