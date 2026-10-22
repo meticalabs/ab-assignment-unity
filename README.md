@@ -74,7 +74,7 @@ gcloud auth application-default login
 node ab_assignment.mjs set --project <firebase-project-id> --studio mystudio --game mygame --percentage 50
 ```
 
-It builds the value, checks it, shows what will change and asks before it publishes. Other commands: `get` (show and check the published value) and `disable` (kill switch). Credentials, service accounts and all options: [`tools/README.md`](tools/README.md).
+It builds the value, checks it, shows what will change and asks before it publishes. Other commands: `get` (show and check the published value), `disable` (kill switch) and `enable` (turn it back on under the same experiment id). Credentials, service accounts and all options: [`tools/README.md`](tools/README.md).
 
 ### Option B: Firebase console
 
@@ -330,7 +330,7 @@ Then **Window › General › Test Runner › EditMode** and run `AB.Assignment.
 | You want to | Do this |
 |---|---|
 | Stop Metica ads for everyone | Publish the same value with `"enabled": false`, or `node ab_assignment.mjs disable --project <id>` |
-| Turn Metica ads back on | Publish the same value with `"enabled": true` |
+| Turn Metica ads back on | Publish the same value with `"enabled": true`, or `node ab_assignment.mjs enable --project <id>` |
 | Change the percentage | Publish a new `experiment_id` with today's date and the new percentage. All players are split again. |
 
 - With `enabled: false` every device runs your own ad code. Groups and labels stay the same, so the data stays comparable.

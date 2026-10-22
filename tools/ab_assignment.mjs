@@ -520,13 +520,18 @@ export function buildValue(experimentId, basisPoints, enabled) {
     return text;
 }
 
-// Returns the current value with enabled set to false. experiment_id, metica_percentage and extra fields stay.
-export function disabledValue(current) {
+// Returns the current value with another enabled flag. experiment_id, metica_percentage and extra fields stay.
+function valueWithEnabled(current, enabled) {
     const fields = validateConfig(current);
-    fields.set("enabled", false);
+    fields.set("enabled", enabled);
     const text = writeJson(fields);
     validateConfig(text);
     return text;
+}
+
+// Returns the current value with enabled set to false. experiment_id, metica_percentage and extra fields stay.
+export function disabledValue(current) {
+    return valueWithEnabled(current, false);
 }
 
 // ---------------------------------------------------------------------------
@@ -1047,6 +1052,20 @@ export function experimentIdChanges(oldValue, newValue) {
     return old.experiment_id !== JSON.parse(newValue).experiment_id;
 }
 
+// True if the published value is a valid config with another experiment_id. Devices ignore an invalid value, so
+// replacing it does not assign any device again.
+function changesPublishedExperiment(oldValue, newValue) {
+    try {
+        validateConfig(oldValue);
+    } catch (error) {
+        if (!(error instanceof ConfigError)) {
+            throw error;
+        }
+        return false;
+    }
+    return experimentIdChanges(oldValue, newValue);
+}
+
 async function confirm(prompt) {
     if (!process.stdin.isTTY) {
         throw new ConfigError("no terminal to confirm on; pass --yes to publish without asking");
@@ -1108,31 +1127,76 @@ export async function publish(client, name, condition, makeValue, dryRun, yes) {
 }
 
 export async function commandSet(client, args, value) {
-    return publish(client, args.parameter, args.condition, () => value, args.dryRun, args.yes);
-}
-
-export async function commandDisable(client, args) {
     function makeValue(old) {
-        if (old === null) {
-            throw new TemplateError('"' + args.parameter + '" has no published value to disable');
+        if (!args.newExperiment && old !== null && changesPublishedExperiment(old, value)) {
+            throw new ConfigError("this would publish a new experiment_id, which assigns every device again. " +
+                "Use enable to turn the experiment back on under the same id, or pass --new-experiment to " +
+                "start a new experiment.");
         }
-        return disabledValue(old);
+        return value;
     }
 
     return publish(client, args.parameter, args.condition, makeValue, args.dryRun, args.yes);
+}
+
+// Returns the value for enable and disable: the published value with enabled switched, or a valid value built
+// from --experiment-id when the published value is missing or invalid.
+function toggleValue(args, oldValue, enabled) {
+    let problem = null;
+    let fields = null;
+    if (oldValue === null) {
+        problem = '"' + args.parameter + '" has no published value to ' + (enabled ? "enable" : "disable");
+    } else {
+        try {
+            fields = validateConfig(oldValue);
+        } catch (error) {
+            if (!(error instanceof ConfigError)) {
+                throw error;
+            }
+            problem = 'the published value of "' + args.parameter + '" is invalid: ' + error.message +
+                ". Devices ignore it.";
+        }
+    }
+    if (problem !== null) {
+        if (args.experimentId === null) {
+            throw new TemplateError(problem + " Pass --experiment-id <id> to publish a valid value with enabled " +
+                enabled + ".");
+        }
+        return buildValue(args.experimentId, parseExperimentId(args.experimentId), enabled);
+    }
+    if (args.experimentId !== null && args.experimentId !== fields.get("experiment_id")) {
+        throw new ConfigError("--experiment-id " + args.experimentId + " is not the published experiment_id " +
+            fields.get("experiment_id") + "; --experiment-id is only needed when the published value is missing " +
+            "or invalid");
+    }
+    return valueWithEnabled(oldValue, enabled);
+}
+
+async function publishToggle(client, args, enabled) {
+    const makeValue = (old) => toggleValue(args, old, enabled);
+    return publish(client, args.parameter, args.condition, makeValue, args.dryRun, args.yes);
+}
+
+export async function commandDisable(client, args) {
+    return publishToggle(client, args, false);
+}
+
+export async function commandEnable(client, args) {
+    return publishToggle(client, args, true);
 }
 
 // ---------------------------------------------------------------------------
 // Command line
 // ---------------------------------------------------------------------------
 
-const USAGE = `usage: node ${SCRIPT_NAME} {get,set,disable} --project PROJECT [options]
+const USAGE = `usage: node ${SCRIPT_NAME} {get,set,enable,disable} --project PROJECT [options]
 
 Read or update the metica_assignment Firebase Remote Config parameter.
 
 commands:
   get                  print the published value and check it
   set                  set the experiment
+  enable               set enabled to true, keep experiment_id and metica_percentage
   disable              set enabled to false, keep experiment_id and metica_percentage
 
 options for all commands:
@@ -1141,10 +1205,14 @@ options for all commands:
                        else gcloud application-default credentials
   --parameter NAME     parameter name (default ${DEFAULT_PARAMETER})
 
-options for set and disable:
+options for set, enable and disable:
   --condition NAME     set the value for this existing condition instead of the default value
   --dry-run            print the diff and stop
   --yes                publish without asking
+
+options for enable and disable:
+  --experiment-id ID   publish a valid value with enabled on/off for this id. Only needed when the
+                       published value is missing or invalid
 
 options for set:
   --studio STUDIO      studio segment, lower case, e.g. acme
@@ -1154,6 +1222,7 @@ options for set:
   --experiment-id ID   full experiment id instead of --studio/--game/--date
   --enabled            route the Metica group to Metica (default)
   --disabled           kill switch on
+  --new-experiment     allow a new experiment_id (assigns every device again)
 
 See README.md.`;
 
@@ -1175,18 +1244,20 @@ const SET_OPTIONS = {
     "experiment-id": { type: "string" },
     enabled: { type: "boolean" },
     disabled: { type: "boolean" },
+    "new-experiment": { type: "boolean" },
 };
 const COMMAND_OPTIONS = {
     get: COMMON_OPTIONS,
     set: { ...COMMON_OPTIONS, ...WRITE_OPTIONS, ...SET_OPTIONS },
-    disable: { ...COMMON_OPTIONS, ...WRITE_OPTIONS },
+    enable: { ...COMMON_OPTIONS, ...WRITE_OPTIONS, "experiment-id": { type: "string" } },
+    disable: { ...COMMON_OPTIONS, ...WRITE_OPTIONS, "experiment-id": { type: "string" } },
 };
 
 // Returns the parsed arguments. Missing values are null, like None in Python.
 export function parseCommandLine(argv) {
     const command = argv[0];
     if (!Object.hasOwn(COMMAND_OPTIONS, command)) {
-        throw new UsageError("choose a command: get, set or disable");
+        throw new UsageError("choose a command: get, set, enable or disable");
     }
     const options = COMMAND_OPTIONS[command];
     // argparse takes a negative number as an option value (--percentage -1); parseArgs only takes --percentage=-1.
@@ -1229,6 +1300,7 @@ export function parseCommandLine(argv) {
         percentage: values.percentage ?? null,
         date: values.date ?? null,
         experimentId: values["experiment-id"] ?? null,
+        newExperiment: values["new-experiment"] ?? false,
         enabled: !values.disabled,
     };
 }
@@ -1261,6 +1333,9 @@ export async function main(argv) {
         }
         if (args.command === "set") {
             return await commandSet(client, args, value);
+        }
+        if (args.command === "enable") {
+            return await commandEnable(client, args);
         }
         return await commandDisable(client, args);
     } catch (error) {

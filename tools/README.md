@@ -26,14 +26,14 @@ node ab_assignment.mjs --help
 
 ## Getting credentials
 
-The tool needs a Google identity that can read (for `get`) or publish (for `set` and `disable`) the project's Remote Config. Use option A or option B.
+The tool needs a Google identity that can read (for `get`) or publish (for `set`, `enable` and `disable`) the project's Remote Config. Use option A or option B.
 
 ### Who needs which permission
 
 | Command | Needed access | Role |
 |---|---|---|
 | `get` | read Remote Config | **Firebase Remote Config Viewer** (`roles/firebase.remoteConfigViewer`), or the Admin role below |
-| `set`, `disable` | read and publish Remote Config | **Firebase Remote Config Admin** (`roles/firebase.remoteConfigAdmin`) |
+| `set`, `enable`, `disable` | read and publish Remote Config | **Firebase Remote Config Admin** (`roles/firebase.remoteConfigAdmin`) |
 
 Project-wide roles such as Owner, Editor or Firebase Admin also work, but give much more access than the tool needs.
 
@@ -132,11 +132,12 @@ How the game reads it: the game reads the parameter as a string (`ConfigValue.St
 | `--studio`, `--game` | set | Lower case `a-z`, `0-9`, `_`, `.`; no `-`. Joined as `<studio>_<game>`, at most 64 characters together. |
 | `--percentage` | set | `metica_percentage`, 0 to 100, at most two decimals |
 | `--date` | set | `YYYYMMDD` datestamp. Default: today in UTC. |
-| `--experiment-id` | set | Full id instead of `--studio`/`--game`/`--date` |
+| `--experiment-id` | set, enable, disable | For `set`: full id instead of `--studio`/`--game`/`--date`. For `enable` and `disable`: publish a valid value with `enabled` on or off for this id, with `metica_percentage` taken from it. Only needed when the published value is missing or invalid. |
 | `--enabled` / `--disabled` | set | Value of `enabled`. Default `--enabled`. |
-| `--condition` | set, disable | Change the value for this condition instead of the default value. The condition must already exist in the template, and the parameter must already have a default value. The repository README recommends no conditions on this parameter; use this only for something like a QA-device condition. |
-| `--dry-run` | set, disable | Print the diff and stop |
-| `--yes` | set, disable | Publish without asking. Required when there is no terminal (CI). |
+| `--new-experiment` | set | Allow publishing a different `experiment_id` than the valid published one. Assigns every device again. |
+| `--condition` | set, enable, disable | Change the value for this condition instead of the default value. The condition must already exist in the template, and the parameter must already have a default value. The repository README recommends no conditions on this parameter; use this only for something like a QA-device condition. |
+| `--dry-run` | set, enable, disable | Print the diff and stop |
+| `--yes` | set, enable, disable | Publish without asking. Required when there is no terminal (CI). |
 
 Exit codes: `0` success (or nothing to change, or a dry run); `1` for `get` when the value is missing or invalid, or when you answer no to the publish question; `2` for bad arguments, an invalid value, credential or connection problems, or a rejected API request.
 
@@ -180,11 +181,19 @@ Kill switch: keep `experiment_id` and `metica_percentage`, set `enabled` to `fal
 node ab_assignment.mjs disable --project <project-id>
 ```
 
-Turn routing back on with the same experiment id:
+Turn routing back on under the same experiment id, so no device changes group:
 
 ```bash
-node ab_assignment.mjs set --project <project-id> \
-    --experiment-id <experiment-id> --enabled
+node ab_assignment.mjs enable --project <project-id>
+```
+
+`set` builds the experiment id from `--studio`, `--game`, `--percentage` and `--date`, and `--date` defaults to today. Re-running the command that started the experiment on a later day therefore builds a new id. `set` refuses to replace a valid published `experiment_id` and tells you to use `enable` instead; pass `--new-experiment` when you really want a new id, because every device is hashed again and can change group.
+
+When the published value is missing or invalid (every device ignores it), `enable` and `disable` stop with an error. Pass `--experiment-id <id>` to publish a valid value under that id:
+
+```bash
+node ab_assignment.mjs disable --project <project-id> \
+    --experiment-id <experiment-id>
 ```
 
 ## Tests
