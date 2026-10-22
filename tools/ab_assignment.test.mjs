@@ -379,7 +379,7 @@ test("no change does not publish", async () => {
 
 test("disable keeps experiment", async () => {
     const client = new FakeClient(loadTemplate());
-    const args = { parameter: NAME, condition: null, dryRun: false, yes: true };
+    const args = { parameter: NAME, condition: null, dryRun: false, yes: true, experimentId: null };
     const [code] = await runQuietly(ma.commandDisable, client, args);
     assert.equal(code, 0);
     const sent = JSON.parse(client.puts[1][0].parameterGroups.Metica.parameters[NAME].defaultValue.value);
@@ -389,7 +389,7 @@ test("disable keeps experiment", async () => {
 test("disable fails without value", async () => {
     const template = loadTemplate();
     delete template.parameterGroups.Metica.parameters[NAME];
-    const args = { parameter: NAME, condition: null, dryRun: false, yes: true };
+    const args = { parameter: NAME, condition: null, dryRun: false, yes: true, experimentId: null };
     await assert.rejects(runQuietly(ma.commandDisable, new FakeClient(template), args), ma.TemplateError);
 });
 
