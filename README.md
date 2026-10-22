@@ -40,7 +40,6 @@ Notes:
 
 - **Newtonsoft JSON.** The package depends on Unity's `com.unity.nuget.newtonsoft-json` (3.2.1 or later). Unity installs it for you. If your project has its own copy of `Newtonsoft.Json.dll` (for example from the Asset Store or inside another plugin folder), remove that copy, or Unity reports a duplicate assembly.
 - **Assembly definitions.** If your game code is in an assembly definition (`.asmdef`), add a reference to `Metica.Assignment`. Code in `Assembly-CSharp` needs nothing.
-- **Private repository.** If this repository is private for you, Unity needs Git access to GitHub on your machine and on your build server (an SSH key or a credential helper that can read the repository).
 
 ---
 
