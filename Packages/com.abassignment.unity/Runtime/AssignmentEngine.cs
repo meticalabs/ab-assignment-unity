@@ -63,6 +63,8 @@ namespace AB.Assignment {
         private long _adsInitStartMs;
         private bool _adsInitTimeoutSent;
         private bool _adsInitOutcomeSent;
+        // skipped_low_memory was reported: one later Started plus one terminal outcome are still reported.
+        private bool _adsInitSkippedRetryAllowed;
 
         /// <param name="platform">"android" or "ios"; null on other platforms, where events are not sent.</param>
         /// <param name="jitter">Backoff jitter factor in [0.5, 1.0].</param>
@@ -141,7 +143,8 @@ namespace AB.Assignment {
                 return current;
             }
             if (_mainThreadId != -1 && Thread.CurrentThread.ManagedThreadId != _mainThreadId) {
-                AssignmentLog.Error("The group was first needed off the main thread; it is not decided yet.");
+                AssignmentLog.Error("The group was first needed off the main thread; it is not decided yet. " +
+                                    "Read Current once on the main thread before any ad call.");
                 return null;
             }
             if (!EnsureSession()) {
@@ -297,10 +300,14 @@ namespace AB.Assignment {
                 return;
             }
             if (stage == AdsInitStage.Started) {
-                if (_adsInitStarted) {
+                if (_adsInitStarted && !_adsInitSkippedRetryAllowed) {
                     AssignmentLog.Warning("Ads init Started was reported twice; the second report is ignored.");
                     return;
                 }
+                // A Started after skipped_low_memory opens a new attempt: its outcome and 30 s timeout count from here.
+                _adsInitSkippedRetryAllowed = false;
+                _adsInitOutcomeSent = false;
+                _adsInitTimeoutSent = false;
                 _adsInitStarted = true;
                 _adsInitStartMs = _clock.ElapsedMilliseconds;
                 return;
@@ -337,6 +344,8 @@ namespace AB.Assignment {
                 payload["error"] = Truncate(errorOrNull);
             }
             _adsInitOutcomeSent = true;
+            // skipped_low_memory is provisional: one later Started plus one outcome may still be reported.
+            _adsInitSkippedRetryAllowed = stage == AdsInitStage.SkippedLowMemory;
             Emit(AdsInitEvent, payload);
         }
 
@@ -424,7 +433,8 @@ namespace AB.Assignment {
 
             int bucket = Bucketing.Bucket(config.ExperimentId, _userId);
             Group group = Bucketing.GroupFor(bucket, config.MeticaPercentageBasisPoints);
-            bool runMetica = ApplyDebugOverride(group == Group.Metica && config.Enabled);
+            // The kill switch wins: with enabled false the debug override cannot route to Metica.
+            bool runMetica = config.Enabled && ApplyDebugOverride(group == Group.Metica);
             bool isNew = RecordEnrollment(config.ExperimentId);
             return new AssignmentResult(group, runMetica, config.Enabled, config.ExperimentId,
                 config.MeticaPercentageBasisPoints, bucket, _userId, _sessionId, source, isNew, null);

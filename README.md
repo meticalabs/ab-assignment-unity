@@ -250,11 +250,11 @@ private static async Task StartMax(AssignmentResult assignment) {
 }
 ```
 
-Rules for `ReportAdsInit`: `Started` just before you start the ad SDK, then exactly one of `Succeeded` or `Failed`. Main thread only. If no outcome is reported within 30 seconds, the package sends `pending_timeout` itself.
+Rules for `ReportAdsInit`: `Started` just before you start the ad SDK, then exactly one of `Succeeded` or `Failed`. Main thread only. If no outcome is reported within 30 seconds, the package sends `pending_timeout` itself. If you report `SkippedLowMemory` and start the ad SDK later anyway, report `Started` plus one outcome then: that second attempt is sent and gets its own 30-second timeout.
 
 ### 3.4 Tag placements
 
-`TagPlacement` puts the group in front of a placement name: `TagPlacement("LevelComplete")` returns `metica|LevelComplete`, `baseline|LevelComplete` or `unassigned|LevelComplete`. Use the tagged string everywhere a placement name goes to an ad SDK or a revenue event, so every report can be split by group.
+`TagPlacement` puts the group in front of a placement name: `TagPlacement("LevelComplete")` returns `metica|LevelComplete`, `baseline|LevelComplete` or `unassigned|LevelComplete`. Use the tagged string everywhere a placement name goes to an ad SDK or a revenue event, so every report can be split by group. Read `Current` once on the main thread before your first ad call: if `TagPlacement` runs on another thread before the group is decided it cannot decide it there, logs an error and returns an `unassigned|` tag, and that tag stays on the placement for the whole session even after the group is decided.
 
 Interstitial and rewarded: tag in your shared show function, after ads have started.
 
@@ -308,7 +308,7 @@ Run a **development build on a device or emulator**. The Unity Editor and deskto
 
 To test a fresh install on Android: `adb shell pm clear <your.package.name>`. This also creates a new user id, so the device may land in the other group.
 
-To force a route while testing (development builds and the Editor only), call `ABAssignment.SetDebugOverride(Group.Metica)` or `Group.Baseline`. It applies from the next launch and changes the route only, not the group label. It has no effect while the device is unassigned (no Firebase value saved yet). `SetDebugOverride(null)` clears it.
+To force a route while testing (development builds and the Editor only), call `ABAssignment.SetDebugOverride(Group.Metica)` or `Group.Baseline`. It applies from the next launch and changes the route only, not the group label. The kill switch wins over it: with `"enabled": false` the route stays off on that device even with the override set, and the override applies again as soon as publishing is enabled. It has no effect while the device is unassigned (no Firebase value saved yet). `SetDebugOverride(null)` clears it.
 
 ### Run the package tests (optional)
 

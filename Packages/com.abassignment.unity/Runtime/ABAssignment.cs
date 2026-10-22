@@ -125,7 +125,9 @@ namespace AB.Assignment {
         /// <summary>
         /// Reports the init of the primary ad network this session routes to (Metica when
         /// <see cref="AssignmentResult.RunMetica"/>, otherwise the game's own MAX code). Report
-        /// <see cref="AdsInitStage.Started"/> just before starting it, then exactly one outcome.
+        /// <see cref="AdsInitStage.Started"/> just before starting it, then exactly one outcome. After
+        /// <see cref="AdsInitStage.SkippedLowMemory"/> a later <see cref="AdsInitStage.Started"/> plus one outcome is
+        /// still reported as a new attempt.
         /// <paramref name="meticaInternalGroup"/> and <paramref name="forcedHoldout"/> are recorded only for
         /// <see cref="AdsInitStage.Succeeded"/>, <paramref name="errorOrNull"/> only for <see cref="AdsInitStage.Failed"/>.
         /// Decides the group if it has not been decided yet. Main thread.

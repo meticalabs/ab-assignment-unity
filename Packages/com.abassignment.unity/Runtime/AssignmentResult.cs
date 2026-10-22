@@ -14,7 +14,7 @@ namespace AB.Assignment {
         /// <summary>metica | baseline | unassigned. Follows <see cref="Group"/>; used for placement tags and events.</summary>
         public string Label { get; }
 
-        /// <summary>Whether the game routes ads to Metica this session: Group == Metica and Enabled (debug override aside).</summary>
+        /// <summary>Whether the game routes ads to Metica this session: Group == Metica and Enabled. The debug override only applies when Enabled; the kill switch wins.</summary>
         public bool RunMetica { get; }
 
         /// <summary>The config "enabled" value in effect this session. False when unassigned.</summary>
