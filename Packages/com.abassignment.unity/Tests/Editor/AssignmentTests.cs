@@ -306,6 +306,17 @@ namespace AB.Assignment.Tests {
             Assert.IsTrue(enabled.RunMetica, "the override still applies when enabled is true");
         }
 
+        [Test]
+        public void KillSwitchOverDebugOverrideIsLogged() {
+            StartSession(ConfigA());
+            ABAssignment.SetDebugOverride(Group.Metica);
+            Warnings.Clear();
+
+            StartSession(ConfigA(false));
+            Assert.IsTrue(Warnings.Exists(w => w.Contains("Debug override ignored") && w.Contains("kill switch")),
+                "QA can see why the override did nothing");
+        }
+
         // ---- debug override, placement tags, threading, custom ids ----
 
         [Test]

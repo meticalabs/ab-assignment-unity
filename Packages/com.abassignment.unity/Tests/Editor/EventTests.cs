@@ -468,6 +468,72 @@ namespace AB.Assignment.Tests {
         }
 
         [Test]
+        public void RepeatedLowMemorySkipsAllowOnlyOneRetry() {
+            StartSessionCached(ConfigA());
+            ABAssignment.ReportAdsInit(AdsInitStage.Started);
+            ABAssignment.ReportAdsInit(AdsInitStage.SkippedLowMemory);
+            ABAssignment.ReportAdsInit(AdsInitStage.Started);
+            ABAssignment.ReportAdsInit(AdsInitStage.SkippedLowMemory);
+            ABAssignment.ReportAdsInit(AdsInitStage.Started);
+            ABAssignment.ReportAdsInit(AdsInitStage.Succeeded, null, "TRIAL", false);
+
+            Assert.AreEqual(2, AdsInits().Count, "one retry after the first skip, then nothing more");
+            Assert.AreEqual("skipped_low_memory", AdsInits()[0].Payload["outcome"]);
+            Assert.AreEqual("skipped_low_memory", AdsInits()[1].Payload["outcome"]);
+        }
+
+        [Test]
+        public void StartedTwiceWithoutSkipIgnoresTheSecond() {
+            StartSessionCached(ConfigA());
+            ABAssignment.ReportAdsInit(AdsInitStage.Started);
+            Clock.Advance(TimeSpan.FromMilliseconds(1000));
+            ABAssignment.ReportAdsInit(AdsInitStage.Started);
+            Clock.Advance(TimeSpan.FromMilliseconds(500));
+            ABAssignment.ReportAdsInit(AdsInitStage.Succeeded, null, "TRIAL", false);
+
+            Assert.AreEqual(1, AdsInits().Count);
+            Assert.AreEqual(1500L, AdsInits()[0].Payload["elapsed_ms"], "elapsed counts from the first Started");
+            Assert.IsTrue(Warnings.Exists(w => w.Contains("Started was reported twice")));
+        }
+
+        [Test]
+        public void StartedAfterFailedIsIgnored() {
+            StartSessionCached(ConfigA());
+            ABAssignment.ReportAdsInit(AdsInitStage.Started);
+            ABAssignment.ReportAdsInit(AdsInitStage.Failed, "init threw");
+            ABAssignment.ReportAdsInit(AdsInitStage.Started);
+            ABAssignment.ReportAdsInit(AdsInitStage.Succeeded, null, "TRIAL", false);
+
+            Assert.AreEqual(1, AdsInits().Count, "only a skip allows a new attempt");
+            Assert.AreEqual("failed", AdsInits()[0].Payload["outcome"]);
+        }
+
+        [Test]
+        public void SecondOutcomeIsIgnored() {
+            StartSessionCached(ConfigA());
+            ABAssignment.ReportAdsInit(AdsInitStage.Started);
+            ABAssignment.ReportAdsInit(AdsInitStage.Succeeded, null, "TRIAL", false);
+            ABAssignment.ReportAdsInit(AdsInitStage.Succeeded, null, "TRIAL", false);
+
+            Assert.AreEqual(1, AdsInits().Count);
+            Assert.AreEqual("success", AdsInits()[0].Payload["outcome"]);
+        }
+
+        [Test]
+        public void SkipWithoutStartedThenStartedAndSucceededSendsBothOutcomes() {
+            StartSessionCached(ConfigA());
+            ABAssignment.ReportAdsInit(AdsInitStage.SkippedLowMemory);
+            ABAssignment.ReportAdsInit(AdsInitStage.Started);
+            Clock.Advance(TimeSpan.FromMilliseconds(700));
+            ABAssignment.ReportAdsInit(AdsInitStage.Succeeded, null, "TRIAL", false);
+
+            Assert.AreEqual(2, AdsInits().Count);
+            Assert.AreEqual("skipped_low_memory", AdsInits()[0].Payload["outcome"]);
+            Assert.AreEqual("success", AdsInits()[1].Payload["outcome"]);
+            Assert.AreEqual(700L, AdsInits()[1].Payload["elapsed_ms"]);
+        }
+
+        [Test]
         public void OffThreadCallIsLoggedAndIgnored() {
             StartSessionCached(ConfigA());
             var thread = new Thread(() => ABAssignment.ReportAdsInit(AdsInitStage.Succeeded));
