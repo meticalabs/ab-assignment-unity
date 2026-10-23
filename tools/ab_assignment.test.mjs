@@ -299,10 +299,23 @@ test("diff shows only the parameter", () => {
 });
 
 class FakeClient {
-    constructor(template, etag = "etag-1") {
+    // history: published templates, newest first, as Remote Config lists its versions.
+    constructor(template, etag = "etag-1", history = []) {
         this.template = template;
         this.etag = etag;
+        this.history = history;
         this.puts = [];
+    }
+
+    async listVersions(pageToken) {
+        const start = pageToken === null ? 0 : Number(pageToken);
+        const versions = this.history.slice(start, start + 2).map((_, i) => ({ versionNumber: String(start + i) }));
+        const next = start + 2 < this.history.length ? String(start + 2) : undefined;
+        return { versions: versions, nextPageToken: next };
+    }
+
+    async getVersion(versionNumber) {
+        return structuredClone(this.history[Number(versionNumber)]);
     }
 
     async get() {
@@ -494,4 +507,150 @@ test("disable keeps a valid value with its experiment id", async () => {
 test("disable rejects an experiment id that is not published", async () => {
     const args = { ...TOGGLE_ARGS, experimentId: GAME + "12.5" };
     await assert.rejects(runQuietly(ma.commandDisable, new FakeClient(loadTemplate()), args), ma.ConfigError);
+});
+
+// A missing or invalid published value: devices keep their last valid cached config
+
+function templateWith(value) {
+    const template = loadTemplate();
+    if (value === null) {
+        delete template.parameterGroups.Metica.parameters[NAME];
+    } else {
+        template.parameterGroups.Metica.parameters[NAME].defaultValue.value = value;
+    }
+    return template;
+}
+
+const BROKEN = config(GAME + "50", "90");
+
+function brokenClient(lastValidId = GAME + "50") {
+    const current = templateWith(BROKEN);
+    const history = [current, templateWith("not json"), templateWith(config(lastValidId, lastValidId.split("-").pop()))];
+    return new FakeClient(current, "etag-1", history);
+}
+
+test("set refuses a new experiment id when the published value is invalid", async () => {
+    const client = brokenClient();
+    const args = ma.parseCommandLine(["set", "--project", "p", "--experiment-id", "acme_blockpuzzle-20261102-50",
+        "--yes"]);
+    await assert.rejects(runQuietly(ma.commandSet, client, args, config("acme_blockpuzzle-20261102-50", "50")),
+        { name: "ConfigError", message: new RegExp(GAME + "50[\\s\\S]*--new-experiment") });
+    assert.deepEqual(client.puts, []);
+});
+
+test("set repairs an invalid value under the last valid experiment id", async () => {
+    const client = brokenClient();
+    const args = ma.parseCommandLine(["set", "--project", "p", "--experiment-id", GAME + "50", "--yes"]);
+    const [code] = await runQuietly(ma.commandSet, client, args, config(GAME + "50", "50"));
+    assert.equal(code, 0);
+    assert.equal(client.puts.length, 2);
+});
+
+test("set on an invalid value publishes a new experiment id with --new-experiment", async () => {
+    const client = brokenClient();
+    const args = ma.parseCommandLine(["set", "--project", "p", "--experiment-id", "acme_blockpuzzle-20261102-50",
+        "--new-experiment", "--yes"]);
+    const [code] = await runQuietly(ma.commandSet, client, args, config("acme_blockpuzzle-20261102-50", "50"));
+    assert.equal(code, 0);
+});
+
+test("set on an invalid value with no valid history publishes", async () => {
+    const current = templateWith(BROKEN);
+    const client = new FakeClient(current, "etag-1", [current, templateWith(null)]);
+    const args = ma.parseCommandLine(["set", "--project", "p", "--experiment-id", "acme_blockpuzzle-20261102-50",
+        "--yes"]);
+    const [code] = await runQuietly(ma.commandSet, client, args, config("acme_blockpuzzle-20261102-50", "50"));
+    assert.equal(code, 0);
+});
+
+test("set with a condition refuses a conditional value with another experiment id", async () => {
+    const template = loadTemplate();
+    template.parameterGroups.Metica.parameters[NAME].conditionalValues = { qa_devices: { value: config(GAME + "50", "50") } };
+    const client = new FakeClient(template);
+    const args = ma.parseCommandLine(["set", "--project", "p", "--experiment-id", "acme_blockpuzzle-20261102-50",
+        "--condition", "qa_devices", "--yes"]);
+    await assert.rejects(runQuietly(ma.commandSet, client, args, config("acme_blockpuzzle-20261102-50", "50")),
+        { name: "ConfigError", message: /--new-experiment/ });
+    assert.deepEqual(client.puts, []);
+});
+
+test("enable with another experiment id than the last valid one is refused", async () => {
+    const client = brokenClient();
+    const args = ma.parseCommandLine(["enable", "--project", "p", "--experiment-id", GAME + "12.5", "--yes"]);
+    await assert.rejects(runQuietly(ma.commandEnable, client, args),
+        { name: "ConfigError", message: new RegExp(GAME + "50") });
+    assert.deepEqual(client.puts, []);
+});
+
+test("disable with another experiment id than the last valid one needs --new-experiment", async () => {
+    let client = brokenClient();
+    let args = ma.parseCommandLine(["disable", "--project", "p", "--experiment-id", GAME + "12.5", "--yes"]);
+    await assert.rejects(runQuietly(ma.commandDisable, client, args), { name: "ConfigError" });
+    assert.deepEqual(client.puts, []);
+
+    client = brokenClient();
+    args = ma.parseCommandLine(["disable", "--project", "p", "--experiment-id", GAME + "12.5", "--new-experiment",
+        "--yes"]);
+    const [code] = await runQuietly(ma.commandDisable, client, args);
+    assert.equal(code, 0);
+    const sent = JSON.parse(client.puts[1][0].parameterGroups.Metica.parameters[NAME].defaultValue.value);
+    assert.deepEqual(sent, { experiment_id: GAME + "12.5", metica_percentage: 12.5, enabled: false });
+});
+
+test("enable with the last valid experiment id repairs an invalid value", async () => {
+    const client = brokenClient();
+    const args = ma.parseCommandLine(["enable", "--project", "p", "--experiment-id", GAME + "50", "--yes"]);
+    const [code] = await runQuietly(ma.commandEnable, client, args);
+    assert.equal(code, 0);
+    const sent = JSON.parse(client.puts[1][0].parameterGroups.Metica.parameters[NAME].defaultValue.value);
+    assert.deepEqual(sent, { experiment_id: GAME + "50", metica_percentage: 50, enabled: true });
+});
+
+test("enable with an experiment id repairs a missing value", async () => {
+    const current = templateWith(null);
+    const client = new FakeClient(current, "etag-1", [current]);
+    const args = ma.parseCommandLine(["enable", "--project", "p", "--experiment-id", GAME + "50", "--yes"]);
+    const [code] = await runQuietly(ma.commandEnable, client, args);
+    assert.equal(code, 0);
+    const sent = JSON.parse(client.puts[1][0].parameters[NAME].defaultValue.value);
+    assert.deepEqual(sent, { experiment_id: GAME + "50", metica_percentage: 50, enabled: true });
+});
+
+test("enable without an experiment id names the last valid one", async () => {
+    const args = { ...TOGGLE_ARGS, command: "enable" };
+    await assert.rejects(runQuietly(ma.commandEnable, brokenClient(), args),
+        { name: "TemplateError", message: new RegExp("--experiment-id " + GAME + "50") });
+});
+
+test("enable without an experiment id explains a missing value", async () => {
+    const current = templateWith(null);
+    const args = { ...TOGGLE_ARGS, command: "enable" };
+    await assert.rejects(runQuietly(ma.commandEnable, new FakeClient(current, "etag-1", [current]), args),
+        { name: "TemplateError", message: /no published value[\s\S]*--experiment-id/ });
+});
+
+test("enable on an enabled value changes nothing", async () => {
+    const template = loadTemplate();
+    template.parameterGroups.Metica.parameters[NAME].valueType = "JSON";
+    const client = new FakeClient(template);
+    const [code, out] = await runQuietly(ma.commandEnable, client, { ...TOGGLE_ARGS, command: "enable" });
+    assert.equal(code, 0);
+    assert.ok(out.includes("No change"));
+    assert.deepEqual(client.puts, []);
+});
+
+test("enable checks --experiment-id before loading credentials", async () => {
+    const errors = [];
+    const error = console.error;
+    console.error = (...parts) => {
+        errors.push(parts.join(" "));
+    };
+    try {
+        const code = await ma.main(["enable", "--project", "p", "--experiment-id", "not-an-id",
+            "--credentials", "/nonexistent/key.json"]);
+        assert.equal(code, 2);
+    } finally {
+        console.error = error;
+    }
+    assert.match(errors.join("\n"), /does not match/);
 });
