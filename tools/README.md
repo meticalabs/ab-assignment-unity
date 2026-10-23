@@ -118,7 +118,7 @@ Rules the tool checks, the same as the game:
 - All three fields are present with the right types (string, number, boolean). Extra fields are allowed.
 - The JSON is strict: no duplicate keys, no `NaN`, no trailing text, at most 64 levels of nesting.
 
-A value that breaks a rule is ignored by every device, which then reports `fetch_status = invalid`. The tool refuses to publish such a value.
+A value that breaks a rule is ignored by every device, which then reports `fetch_status = invalid` and keeps using its last valid cached value (same experiment id, group and `enabled`). The tool refuses to publish such a value.
 
 How the game reads it: the game reads the parameter as a string (`ConfigValue.StringValue`) and parses the JSON itself. Firebase's data type does not change what the device receives; the tool sets it to JSON so the console checks the JSON on edits.
 
@@ -132,9 +132,9 @@ How the game reads it: the game reads the parameter as a string (`ConfigValue.St
 | `--studio`, `--game` | set | Lower case `a-z`, `0-9`, `_`, `.`; no `-`. Joined as `<studio>_<game>`, at most 64 characters together. |
 | `--percentage` | set | `metica_percentage`, 0 to 100, at most two decimals |
 | `--date` | set | `YYYYMMDD` datestamp. Default: today in UTC. |
-| `--experiment-id` | set, enable, disable | For `set`: full id instead of `--studio`/`--game`/`--date`. For `enable` and `disable`: publish a valid value with `enabled` on or off for this id, with `metica_percentage` taken from it. Only needed when the published value is missing or invalid. |
+| `--experiment-id` | set, enable, disable | For `set`: full id instead of `--studio`/`--game`/`--date`. For `enable` and `disable`: publish a valid value with `enabled` on or off for this id, with `metica_percentage` taken from it. Only needed when the published value is missing or invalid, and must then be the last valid `experiment_id` unless `--new-experiment` is given. |
 | `--enabled` / `--disabled` | set | Value of `enabled`. Default `--enabled`. |
-| `--new-experiment` | set | Allow publishing a different `experiment_id` than the valid published one. Assigns every device again. |
+| `--new-experiment` | set, enable, disable | Allow an `experiment_id` other than the one devices use (the published one, or the last valid one when the published value is missing or invalid). Assigns every device again. |
 | `--condition` | set, enable, disable | Change the value for this condition instead of the default value. The condition must already exist in the template, and the parameter must already have a default value. The repository README recommends no conditions on this parameter; use this only for something like a QA-device condition. |
 | `--dry-run` | set, enable, disable | Print the diff and stop |
 | `--yes` | set, enable, disable | Publish without asking. Required when there is no terminal (CI). |
@@ -187,9 +187,11 @@ Turn routing back on under the same experiment id, so no device changes group:
 node ab_assignment.mjs enable --project <project-id>
 ```
 
-`set` builds the experiment id from `--studio`, `--game`, `--percentage` and `--date`, and `--date` defaults to today. Re-running the command that started the experiment on a later day therefore builds a new id. `set` refuses to replace a valid published `experiment_id` and tells you to use `enable` instead; pass `--new-experiment` when you really want a new id, because every device is hashed again and can change group.
+`set` builds the experiment id from `--studio`, `--game`, `--percentage` and `--date`, and `--date` defaults to today. Re-running the command that started the experiment on a later day therefore builds a new id. `set` refuses to publish an `experiment_id` other than the one devices use and tells you to use `enable` instead; pass `--new-experiment` when you really want a new id, because every device is hashed again and can change group.
 
-When the published value is missing or invalid (every device ignores it), `enable` and `disable` stop with an error. Pass `--experiment-id <id>` to publish a valid value under that id:
+Devices keep their last valid cached value when the published one is missing or invalid, so in that case "the one devices use" is the last valid `experiment_id` in the Remote Config version history. The tool looks it up (`remoteConfig:listVersions`, then each version newest first), which can take a moment on a project with a long history.
+
+When the published value is missing or invalid, `enable` and `disable` stop with an error that names the last valid `experiment_id`. Pass it as `--experiment-id` to publish a valid value under that id; any other id also needs `--new-experiment`:
 
 ```bash
 node ab_assignment.mjs disable --project <project-id> \

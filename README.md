@@ -60,7 +60,7 @@ Create one Remote Config parameter called `metica_assignment` with a JSON value 
 | `metica_percentage` | Share of players in the Metica group, 0 to 100, at most two decimals. It must equal the last part of `experiment_id` (`...-50` goes with `50`). |
 | `enabled` | `true`. Set it to `false` to stop Metica ads (see [kill switch](#5-kill-switch-and-later-changes)). |
 
-A value that breaks a rule is ignored by every device. The tool below checks the value before it publishes.
+A value that breaks a rule is ignored by every device, which keeps its last valid value. The tool below checks the value before it publishes.
 
 ### Option A: command-line tool
 

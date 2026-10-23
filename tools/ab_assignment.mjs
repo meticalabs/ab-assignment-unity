@@ -912,6 +912,21 @@ export class RemoteConfigClient {
         return [responseJson(response.text, "GET"), etag];
     }
 
+    async listVersions(pageToken) {
+        let url = this.url + ":listVersions?pageSize=100";
+        if (pageToken !== null) {
+            url += "&pageToken=" + encodeURIComponent(pageToken);
+        }
+        const response = await this.send("GET", url, {}, undefined);
+        return responseJson(response.text, "GET");
+    }
+
+    async getVersion(versionNumber) {
+        const url = this.url + "?versionNumber=" + encodeURIComponent(versionNumber);
+        const response = await this.send("GET", url, {}, undefined);
+        return responseJson(response.text, "GET");
+    }
+
     async put(template, etag, validateOnly) {
         let url = this.url;
         if (validateOnly) {
@@ -1052,18 +1067,51 @@ export function experimentIdChanges(oldValue, newValue) {
     return old.experiment_id !== JSON.parse(newValue).experiment_id;
 }
 
-// True if the published value is a valid config with another experiment_id. Devices ignore an invalid value, so
-// replacing it does not assign any device again.
-function changesPublishedExperiment(oldValue, newValue) {
+// Returns the experiment_id of a valid value, or null for a missing or invalid one.
+function validExperimentId(value) {
+    if (value === null) {
+        return null;
+    }
     try {
-        validateConfig(oldValue);
+        return validateConfig(value).get("experiment_id");
     } catch (error) {
         if (!(error instanceof ConfigError)) {
             throw error;
         }
-        return false;
+        return null;
     }
-    return experimentIdChanges(oldValue, newValue);
+}
+
+// Returns the experiment_id of the newest published version with a valid value, or null if there is none.
+// Devices ignore a missing or invalid value and keep their last valid cached config, so this is the id they still
+// use.
+export async function lastValidExperimentId(client, name, condition) {
+    console.log("The published value is missing or invalid; looking up the last valid one in the version history.");
+    let pageToken = null;
+    do {
+        const page = await client.listVersions(pageToken);
+        for (const version of page.versions ?? []) {
+            const [parameter] = findParameter(await client.getVersion(version.versionNumber), name);
+            if (parameter !== null) {
+                const experimentId = validExperimentId(currentValue(parameter, condition));
+                if (experimentId !== null) {
+                    return experimentId;
+                }
+            }
+        }
+        pageToken = page.nextPageToken ?? null;
+    } while (pageToken !== null);
+    return null;
+}
+
+// Returns the experiment_id devices use: the published one, or the last valid one when the published value is
+// missing or invalid.
+async function experimentIdInUse(client, args, oldValue) {
+    const publishedId = validExperimentId(oldValue);
+    if (publishedId !== null) {
+        return publishedId;
+    }
+    return lastValidExperimentId(client, args.parameter, args.condition);
 }
 
 async function confirm(prompt) {
@@ -1088,7 +1136,7 @@ export async function publish(client, name, condition, makeValue, dryRun, yes) {
     if (parameter !== null) {
         oldValue = currentValue(parameter, condition);
     }
-    const value = makeValue(oldValue);
+    const value = await makeValue(oldValue);
 
     const updated = applyValue(template, name, value, condition);
     checkUntouched(template, updated, name);
@@ -1127,11 +1175,15 @@ export async function publish(client, name, condition, makeValue, dryRun, yes) {
 }
 
 export async function commandSet(client, args, value) {
-    function makeValue(old) {
-        if (!args.newExperiment && old !== null && changesPublishedExperiment(old, value)) {
-            throw new ConfigError("this would publish a new experiment_id, which assigns every device again. " +
-                "Use enable to turn the experiment back on under the same id, or pass --new-experiment to " +
-                "start a new experiment.");
+    async function makeValue(old) {
+        if (!args.newExperiment) {
+            const inUse = await experimentIdInUse(client, args, old);
+            const newId = JSON.parse(value).experiment_id;
+            if (inUse !== null && inUse !== newId) {
+                throw new ConfigError("this would publish experiment_id " + newId + ", but devices use " + inUse +
+                    ". A new experiment_id assigns every device again. Use enable or disable to keep " + inUse +
+                    ", or pass --new-experiment to start a new experiment.");
+            }
         }
         return value;
     }
@@ -1141,7 +1193,7 @@ export async function commandSet(client, args, value) {
 
 // Returns the value for enable and disable: the published value with enabled switched, or a valid value built
 // from --experiment-id when the published value is missing or invalid.
-function toggleValue(args, oldValue, enabled) {
+async function toggleValue(client, args, oldValue, enabled) {
     let problem = null;
     let fields = null;
     if (oldValue === null) {
@@ -1154,13 +1206,23 @@ function toggleValue(args, oldValue, enabled) {
                 throw error;
             }
             problem = 'the published value of "' + args.parameter + '" is invalid: ' + error.message +
-                ". Devices ignore it.";
+                ". Devices ignore it and keep their last valid value.";
         }
     }
     if (problem !== null) {
+        const lastValidId = await lastValidExperimentId(client, args.parameter, args.condition);
         if (args.experimentId === null) {
-            throw new TemplateError(problem + " Pass --experiment-id <id> to publish a valid value with enabled " +
-                enabled + ".");
+            if (lastValidId === null) {
+                throw new TemplateError(problem + " No earlier version has a valid value. Pass --experiment-id " +
+                    "<id> to publish a valid value with enabled " + enabled + ".");
+            }
+            throw new TemplateError(problem + " Devices still use " + lastValidId + ". Pass --experiment-id " +
+                lastValidId + " to publish it again with enabled " + enabled + ".");
+        }
+        if (lastValidId !== null && lastValidId !== args.experimentId && !args.newExperiment) {
+            throw new ConfigError("--experiment-id " + args.experimentId + " is not " + lastValidId +
+                ", the last valid experiment_id, which devices still use. Pass --experiment-id " + lastValidId +
+                ", or --new-experiment to start a new experiment.");
         }
         return buildValue(args.experimentId, parseExperimentId(args.experimentId), enabled);
     }
@@ -1173,7 +1235,7 @@ function toggleValue(args, oldValue, enabled) {
 }
 
 async function publishToggle(client, args, enabled) {
-    const makeValue = (old) => toggleValue(args, old, enabled);
+    const makeValue = (old) => toggleValue(client, args, old, enabled);
     return publish(client, args.parameter, args.condition, makeValue, args.dryRun, args.yes);
 }
 
@@ -1212,7 +1274,8 @@ options for set, enable and disable:
 
 options for enable and disable:
   --experiment-id ID   publish a valid value with enabled on/off for this id. Only needed when the
-                       published value is missing or invalid
+                       published value is missing or invalid; must be the last valid experiment_id
+  --new-experiment     allow another --experiment-id than the last valid one (assigns every device again)
 
 options for set:
   --studio STUDIO      studio segment, lower case, e.g. acme
@@ -1246,11 +1309,15 @@ const SET_OPTIONS = {
     disabled: { type: "boolean" },
     "new-experiment": { type: "boolean" },
 };
+const TOGGLE_OPTIONS = {
+    "experiment-id": { type: "string" },
+    "new-experiment": { type: "boolean" },
+};
 const COMMAND_OPTIONS = {
     get: COMMON_OPTIONS,
     set: { ...COMMON_OPTIONS, ...WRITE_OPTIONS, ...SET_OPTIONS },
-    enable: { ...COMMON_OPTIONS, ...WRITE_OPTIONS, "experiment-id": { type: "string" } },
-    disable: { ...COMMON_OPTIONS, ...WRITE_OPTIONS, "experiment-id": { type: "string" } },
+    enable: { ...COMMON_OPTIONS, ...WRITE_OPTIONS, ...TOGGLE_OPTIONS },
+    disable: { ...COMMON_OPTIONS, ...WRITE_OPTIONS, ...TOGGLE_OPTIONS },
 };
 
 // Returns the parsed arguments. Missing values are null, like None in Python.
@@ -1323,9 +1390,11 @@ export async function main(argv) {
 
     try {
         let value = null;
+        // Arguments are checked before loading credentials, so bad arguments fail first.
         if (args.command === "set") {
-            // Built before loading credentials, so bad arguments fail first.
             value = newValueForSet(args);
+        } else if (args.experimentId !== null) {
+            parseExperimentId(args.experimentId);
         }
         const client = await RemoteConfigClient.create(args.project, args.credentials);
         if (args.command === "get") {
