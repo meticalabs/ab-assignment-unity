@@ -46,7 +46,7 @@ Firebase Remote Config mapping (the game owns this; the package has no Firebase 
 - `RunMetica` (the route) = `Group == Metica && enabled`. The kill switch changes the route only, never the group or the label.
 - The user id is a GUID (`N` format) generated on first run and persisted in PlayerPrefs. It is lost on reinstall.
 - `AddCustomUserId(source, id)` links game ids to the generated id. It never changes the group.
-- `SetDebugOverride(Group?)` (editor and development builds only) forces the route from the next session. The group and the label stay as assigned.
+- `SetDebugOverride(Group?)` (editor and development builds only) forces the route from the next session. The group and the label stay as assigned. The kill switch wins: with `"enabled": false` the route stays off even with an override set, and a warning says the override was ignored.
 
 ## Placement tags
 
@@ -60,7 +60,7 @@ The library always sends its events to Metica ingestion itself (see [Delivery to
 |---|---|---|
 | `upliftAssignment` | once per session when the group is decided; after that on a new UTC day while in the foreground or on resume, once per experiment and day; when a custom id is added or changed | `experiment_id`, `group`, `metica_route`, `metica_percentage` (always a double, e.g. `50.0`; not when unassigned), `config_source` (`remote_this_session`, `cached_remote`, `unassigned_waiting`, `unassigned_error`), `session_id`, `activity_date_utc`, `custom_user_ids` (when any; `source=id` pairs, URL-encoded, sorted, comma separated), `error` (only when unassigned, never empty) |
 | `upliftConfigFetch` | once per cold start when the game reports the fetch, or after 10 s with `timeout`; at most one more if a result arrives after the timeout | `rc_received`, `fetch_status` (`success`, `invalid`, `missing`, `fetch_failed`, `activation_failed`, `timeout`), `fetch_latency_ms`, `session_id`, `activity_date_utc`, `error` (when given or invalid) |
-| `upliftAdsInit` | when the game reports a terminal stage; `pending_timeout` 30 s after `Started` without one, then at most one more | `session_id`, `experiment_id`, `group`, `network`, `outcome` (`success`, `failed`, `pending_timeout`, `skipped_low_memory`), `elapsed_ms`, `activity_date_utc`, `metica_internal_group` and `forced_holdout` (success only, when given), `error` (failed only) |
+| `upliftAdsInit` | when the game reports a terminal stage; `pending_timeout` 30 s after `Started` without one, then at most one more; after `skipped_low_memory`, one later `Started` plus its outcome (or `pending_timeout`) is sent as a second row, once per session | `session_id`, `experiment_id`, `group`, `network`, `outcome` (`success`, `failed`, `pending_timeout`, `skipped_low_memory`), `elapsed_ms`, `activity_date_utc`, `metica_internal_group` and `forced_holdout` (success only, when given), `error` (failed only) |
 
 Deadlines are checked every frame by the library, so they fire only while the app runs.
 

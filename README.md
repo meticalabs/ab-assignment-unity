@@ -32,12 +32,12 @@ Requirements: Unity 2021.3 or later, Android or iOS. Your game needs Firebase Re
 Add this line to the `dependencies` in your project's `Packages/manifest.json`:
 
 ```json
-"com.abassignment.unity": "https://github.com/meticalabs/ab-assignment-unity.git?path=/Packages/com.abassignment.unity#v2.0.0"
+"com.abassignment.unity": "https://github.com/meticalabs/ab-assignment-unity.git?path=/Packages/com.abassignment.unity#v2.1.0"
 ```
 
 Or in Unity: **Window › Package Manager › + › Add package from git URL…** and paste the URL (the part in quotes after the colon).
 
-`#v2.0.0` pins the version. To update later, change the tag.
+`#v2.1.0` pins the version. To update later, change the tag.
 
 Notes:
 
@@ -250,7 +250,7 @@ private static async Task StartMax(AssignmentResult assignment) {
 }
 ```
 
-Rules for `ReportAdsInit`: `Started` just before you start the ad SDK, then exactly one of `Succeeded` or `Failed`. Main thread only. If no outcome is reported within 30 seconds, the package sends `pending_timeout` itself. If you report `SkippedLowMemory` and start the ad SDK later anyway, report `Started` plus one outcome then: that second attempt is sent and gets its own 30-second timeout.
+Rules for `ReportAdsInit`: `Started` just before you start the ad SDK, then exactly one of `Succeeded` or `Failed`. Main thread only. If no outcome is reported within 30 seconds, the package sends `pending_timeout` itself. If you report `SkippedLowMemory` and start the ad SDK later anyway, report `Started` plus one outcome then: that second attempt is sent and gets its own 30-second timeout. Only one such retry is sent per session.
 
 ### 3.4 Tag placements
 
@@ -308,7 +308,7 @@ Run a **development build on a device or emulator**. The Unity Editor and deskto
 
 To test a fresh install on Android: `adb shell pm clear <your.package.name>`. This also creates a new user id, so the device may land in the other group.
 
-To force a route while testing (development builds and the Editor only), call `ABAssignment.SetDebugOverride(Group.Metica)` or `Group.Baseline`. It applies from the next launch and changes the route only, not the group label. The kill switch wins over it: with `"enabled": false` the route stays off on that device even with the override set, and the override applies again as soon as publishing is enabled. It has no effect while the device is unassigned (no Firebase value saved yet). `SetDebugOverride(null)` clears it.
+To force a route while testing (development builds and the Editor only), call `ABAssignment.SetDebugOverride(Group.Metica)` or `Group.Baseline`. It applies from the next launch and changes the route only, not the group label. The kill switch wins over it: with `"enabled": false` the route stays off on that device even with the override set (a warning says the override was ignored), and the override applies again as soon as publishing is enabled. It has no effect while the device is unassigned (no Firebase value saved yet). `SetDebugOverride(null)` clears it.
 
 ### Run the package tests (optional)
 

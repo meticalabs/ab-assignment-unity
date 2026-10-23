@@ -63,8 +63,9 @@ namespace AB.Assignment {
         private long _adsInitStartMs;
         private bool _adsInitTimeoutSent;
         private bool _adsInitOutcomeSent;
-        // skipped_low_memory was reported: one later Started plus one terminal outcome are still reported.
+        // skipped_low_memory was reported: one later Started plus one terminal outcome are still reported, once per session.
         private bool _adsInitSkippedRetryAllowed;
+        private bool _adsInitRetried;
 
         /// <param name="platform">"android" or "ios"; null on other platforms, where events are not sent.</param>
         /// <param name="jitter">Backoff jitter factor in [0.5, 1.0].</param>
@@ -305,6 +306,7 @@ namespace AB.Assignment {
                     return;
                 }
                 // A Started after skipped_low_memory opens a new attempt: its outcome and 30 s timeout count from here.
+                _adsInitRetried |= _adsInitSkippedRetryAllowed;
                 _adsInitSkippedRetryAllowed = false;
                 _adsInitOutcomeSent = false;
                 _adsInitTimeoutSent = false;
@@ -345,7 +347,7 @@ namespace AB.Assignment {
             }
             _adsInitOutcomeSent = true;
             // skipped_low_memory is provisional: one later Started plus one outcome may still be reported.
-            _adsInitSkippedRetryAllowed = stage == AdsInitStage.SkippedLowMemory;
+            _adsInitSkippedRetryAllowed = stage == AdsInitStage.SkippedLowMemory && !_adsInitRetried;
             Emit(AdsInitEvent, payload);
         }
 
@@ -433,11 +435,24 @@ namespace AB.Assignment {
 
             int bucket = Bucketing.Bucket(config.ExperimentId, _userId);
             Group group = Bucketing.GroupFor(bucket, config.MeticaPercentageBasisPoints);
-            // The kill switch wins: with enabled false the debug override cannot route to Metica.
-            bool runMetica = config.Enabled && ApplyDebugOverride(group == Group.Metica);
+            bool runMetica;
+            if (config.Enabled) {
+                runMetica = ApplyDebugOverride(group == Group.Metica);
+            } else {
+                runMetica = false;
+                WarnIfDebugOverrideIgnored();
+            }
             bool isNew = RecordEnrollment(config.ExperimentId);
             return new AssignmentResult(group, runMetica, config.Enabled, config.ExperimentId,
                 config.MeticaPercentageBasisPoints, bucket, _userId, _sessionId, source, isNew, null);
+        }
+
+        private void WarnIfDebugOverrideIgnored() {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (!string.IsNullOrEmpty(_store.GetString(DebugKey))) {
+                AssignmentLog.Warning("Debug override ignored: the kill switch is on (\"enabled\": false).");
+            }
+#endif
         }
 
         private bool ApplyDebugOverride(bool runMetica) {

@@ -2,7 +2,16 @@
 
 ## [2.1.0] - 2026-10-23
 
-Firebase tool: `enable`, and protection against re-assigning every device by accident.
+Runtime: the kill switch wins over the debug override and one ads-init retry after a low-memory skip. Firebase tool: `enable`, and protection against re-assigning every device by accident.
+
+### Runtime
+
+- With `"enabled": false`, `SetDebugOverride(Group.Metica)` no longer routes to Metica in development builds. A warning, `Debug override ignored: the kill switch is on`, says why. Release builds were never affected.
+- After `ReportAdsInit(SkippedLowMemory)`, one later `Started` plus one outcome is sent as a second `upliftAdsInit` row, with `elapsed_ms` and the 30-second `pending_timeout` counted from that `Started`. Before, the skip blocked the real outcome. A session can now have two `upliftAdsInit` rows this way (as it already could with `pending_timeout` and a late outcome), so analysis should take the last row per `session_id`.
+- Only one retry is allowed per session. `Started` twice, `Started` after `Failed` or `Succeeded`, and a second outcome are still ignored with a warning.
+- The off-thread error when the group is first needed off the main thread now says what to do: read `Current` once on the main thread before any ad call.
+
+### Firebase tool
 
 - New `enable` command, the mirror of `disable`: keeps `experiment_id` and `metica_percentage` and sets `enabled` to true.
 - `set` refuses to publish an `experiment_id` other than the one devices use, and exits with code 2. Re-running the original `set` command on a later day used to publish a new id (the date defaults to today) and re-split every device. Pass `--new-experiment` to start a new experiment on purpose. Scripts that run `set ... --yes` to change the experiment need the new flag.
