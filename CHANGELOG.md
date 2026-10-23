@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.1.0] - 2026-10-23
+
+Firebase tool: `enable`, and protection against re-assigning every device by accident.
+
+- New `enable` command, the mirror of `disable`: keeps `experiment_id` and `metica_percentage` and sets `enabled` to true.
+- `set` refuses to publish an `experiment_id` other than the one devices use, and exits with code 2. Re-running the original `set` command on a later day used to publish a new id (the date defaults to today) and re-split every device. Pass `--new-experiment` to start a new experiment on purpose. Scripts that run `set ... --yes` to change the experiment need the new flag.
+- When the published value is missing or invalid, devices keep their last valid cached value, so the tool looks up the last valid `experiment_id` in the Remote Config version history and protects that one.
+- `enable` and `disable` now work when the published value is missing or invalid: pass `--experiment-id` with the last valid id (the error names it). Another id needs `--new-experiment`. Before, `disable` refused, and the only way out was `set`.
+- A malformed `--experiment-id` for `enable` and `disable` is rejected before credentials are loaded.
+
 ## [2.0.0] - 2026-10-22
 
 Renamed from Metica Assignment to AB Assignment. The package id, assembly, namespace and the two public types changed; behaviour, events and stored data did not.
