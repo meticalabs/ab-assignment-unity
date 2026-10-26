@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+Custom id mapping and client-managed assignment. Automatic assignment, its events and the existing API are unchanged.
+
+- `ABAssignment.ReportCustomId(customId, source = null)` sends a new `upliftCustomIdMapping` event that maps a game id to `ABAssignment.UserId` (carried in `assignment_user_id`). It works at any time, before or after `Initialize` and the group decision, and never decides the group. `AddCustomUserId` is unchanged.
+- `ABAssignment.SetAssignmentMode(AssignmentMode.ClientManaged)` and `ABAssignment.ReportClientAssignment(group, providerUserId, experimentId = null)` let a game that splits players itself report its group and the user id its ad stack used (null until known; reporting it later sends one more event). `upliftAssignment` then has `config_source = "client_managed"`, `assignment_user_id` and, once known, `provider_user_id`. The mode is per session and must be set before the group is needed.
+
 ## [2.1.0] - 2026-10-23
 
 Runtime: the kill switch wins over the debug override and one ads-init retry after a low-memory skip. Firebase tool: `enable`, and protection against re-assigning every device by accident.

@@ -5,7 +5,7 @@ Splits your players into two groups and keeps the split fixed on each device:
 - **Metica**: ads are shown through the Metica SDK.
 - **Baseline**: ads are shown through your own ad code (for example AppLovin MAX).
 
-You set the split in one Firebase Remote Config parameter. The package decides the group on the device, tags every ad placement with it, and sends three small events to Metica so revenue can be compared by group.
+You set the split in one Firebase Remote Config parameter. The package decides the group on the device, tags every ad placement with it, and sends small events to Metica so revenue can be compared by group. If your game already decides itself which players get Metica, it can report its own groups instead and skip Firebase ([client-managed assignment](#client-managed-assignment)).
 
 The package has no dependency on Firebase, AppLovin MAX or the Metica SDK. Your game keeps calling those itself; the package only tells it which route to take.
 
@@ -19,11 +19,12 @@ AB Assignment is built and maintained by Metica. Until 2.0.0 it was called Metic
 4. [Check that it works](#4-check-that-it-works)
 5. [Kill switch and later changes](#5-kill-switch-and-later-changes)
 6. [FAQ and troubleshooting](#6-faq-and-troubleshooting)
-7. [What is sent](#what-is-sent)
-8. [Repository layout](#repository-layout)
-9. [License](#license)
+7. [Optional integrations](#optional-integrations): your own player id, client-managed assignment
+8. [What is sent](#what-is-sent)
+9. [Repository layout](#repository-layout)
+10. [License](#license)
 
-Requirements: Unity 2021.3 or later, Android or iOS. Your game needs Firebase Remote Config, the Metica SDK (for the Metica group) and its own ad code (for the Baseline group).
+Requirements: Unity 2021.3 or later, Android or iOS. Your game needs Firebase Remote Config (not with [client-managed assignment](#client-managed-assignment)), the Metica SDK (for the Metica group) and its own ad code (for the Baseline group).
 
 ---
 
@@ -305,6 +306,7 @@ Run a **development build on a device or emulator**. The Unity Editor and deskto
 | Wrong app id or API key | `Metica ingestion rejected <n> event(s) with HTTP 401 ...` (or 403). Fix the values passed to `Initialize`. |
 | `Initialize` missing | `ABAssignment.Initialize has not been called yet; events are queued until it is.` |
 | Ads shown | The placement in your ad logs starts with `metica|` or `baseline|` |
+| Client-managed group reported ([client-managed assignment](#client-managed-assignment)) | `Client-managed group metica, experiment "", provider user <your id or "not known yet">, user <ABAssignment.UserId>` |
 
 To test a fresh install on Android: `adb shell pm clear <your.package.name>`. This also creates a new user id, so the device may land in the other group.
 
@@ -357,10 +359,10 @@ No. The event is already queued for Metica before listeners run.
 Events stay in a queue on the device while it is offline or Metica cannot be reached, and are sent later with retries. The queue holds at most 100 events; beyond that the oldest are dropped. A 4xx answer other than 408 or 429 (for example a wrong API key) drops the batch with an error log.
 
 **Can I call the API from a background thread?**
-`Initialize`, `ReportRemoteConfig`, `ReportAdsInit`, `SetConsentStatus`, `AddCustomUserId` and the first read of `Current` must be on the main thread; other threads get an error log and the call is ignored. Once the group is decided, `Current` and `TagPlacement` are safe from any thread, including ad revenue callbacks.
+`Initialize`, `ReportRemoteConfig`, `ReportAdsInit`, `SetConsentStatus`, `AddCustomUserId`, `ReportCustomId`, `SetAssignmentMode`, `ReportClientAssignment` and the first read of `Current` must be on the main thread; other threads get an error log and the call is ignored. Once the group is decided, `Current` and `TagPlacement` are safe from any thread, including ad revenue callbacks.
 
 **Can I link my own player id?**
-Yes: `ABAssignment.AddCustomUserId("login", yourPlayerId)`. It is sent with the events and never changes the group.
+Yes: `ABAssignment.ReportCustomId(yourPlayerId, "login")` (see [Link your own player id](#link-your-own-player-id)). It never changes the group.
 
 **Unity says `Newtonsoft.Json` is defined twice.**
 Remove the extra `Newtonsoft.Json.dll` from your `Assets` folder and keep `com.unity.nuget.newtonsoft-json`.
@@ -375,9 +377,60 @@ The full technical reference (events and fields, delivery and retries, persisten
 
 ---
 
+## Optional integrations
+
+Neither of these is needed for the setup above.
+
+### Link your own player id
+
+If your game has its own player id (a login or backend id), report it when it is known:
+
+```csharp
+ABAssignment.ReportCustomId(yourPlayerId, "login");   // the label is optional
+```
+
+It sends one `upliftCustomIdMapping` event that pairs your id with `ABAssignment.UserId`. Call it at any time, before or after `Initialize` and after ads have started; calling it on every launch is fine. It never changes the group or `ABAssignment.UserId`. Pass an opaque or hashed id, not an email address or phone number. Rules and payload: [package reference](Packages/com.abassignment.unity/README.md#custom-id-mapping).
+
+`AddCustomUserId` from earlier versions still works unchanged; it adds ids to `upliftAssignment` instead of sending them at once.
+
+### Client-managed assignment
+
+Use this instead of the Firebase parameter if your game already decides itself which players get Metica. Skip [section 2](#2-set-up-the-firebase-parameter) and [3.2](#32-firebase-fetch-finishes). `Initialize`, placement tagging ([3.4](#34-tag-placements)) and consent ([3.5](#35-consent)) work as described above. Keep your existing ad startup and user ids; the calls below are added to it. The startup code in [3.3](#33-ads-start) is for automatic mode and gives the ad SDKs `ABAssignment.UserId`, so do not copy it here.
+
+1. On every launch (the mode is not saved), before anything reads `Current` or `TagPlacement` or calls `ReportAdsInit`:
+
+   ```csharp
+   ABAssignment.SetAssignmentMode(AssignmentMode.ClientManaged);
+   ABAssignment.Initialize(new ABAssignmentOptions(MeticaAppId, MeticaApiKey));
+   ```
+
+2. Before you start ads, report the group your game chose and the user id your ad SDK uses for this player, or `null` if you do not know it yet:
+
+   ```csharp
+   if (useMetica) {   // useMetica comes from your own split
+       ABAssignment.ReportClientAssignment(Group.Metica, null);            // the Metica SDK id is known only after init
+   } else {
+       ABAssignment.ReportClientAssignment(Group.Baseline, myMaxUserId);   // the id you pass to MaxSdk.SetUserId
+   }
+   ```
+
+3. Call `ABAssignment.ReportAdsInit(AdsInitStage.Started)` just before you start the ad SDK, then `Succeeded` or `Failed` when its init ends. On the Metica route, report the id once init returns it:
+
+   ```csharp
+   if (!string.IsNullOrEmpty(response.UserId)) {   // response is the MeticaInitResponse
+       ABAssignment.ReportClientAssignment(Group.Metica, response.UserId);
+   }
+   ```
+
+After the report, `Current` and `TagPlacement` use your group, and the group stays fixed for the session. The package never reads device or advertising ids. Every event keeps `ABAssignment.UserId` as its user id; your id is sent separately as `provider_user_id`.
+
+The full client-managed Metica and MAX startup example and the exact behaviour (repeated or invalid reports, ads-init timeout, day change) are in the [package reference](Packages/com.abassignment.unity/README.md#client-managed-mode).
+
+---
+
 ## What is sent
 
-The package sends three events, `upliftAssignment`, `upliftConfigFetch` and `upliftAdsInit`, and only to Metica ingestion (`https://api-global-gateway.prod-eu.metica.com`, fallback `https://relay.prod-eu.metica.com`, or your custom domain if you set one), with your Metica API key in the `X-API-KEY` header. Each event has exactly these fields:
+The package sends four events, `upliftAssignment`, `upliftConfigFetch`, `upliftAdsInit` and `upliftCustomIdMapping` (only when your game calls `ReportCustomId`), and only to Metica ingestion (`https://api-global-gateway.prod-eu.metica.com`, fallback `https://relay.prod-eu.metica.com`, or your custom domain if you set one), with your Metica API key in the `X-API-KEY` header. Each event has exactly these fields:
 
 | Field | Value |
 |---|---|
@@ -387,11 +440,11 @@ The package sends three events, `upliftAssignment`, `upliftConfigFetch` and `upl
 | `eventTime` | When the event was logged, Unix epoch milliseconds |
 | `userId` | The random id the package generates on first launch (`ABAssignment.UserId`). It is not derived from any device or advertising id. |
 | `platform` | `android` or `ios` |
-| `customPayload` | The event's own fields (experiment id, group, route, config source, fetch and ads-init outcome, session id, UTC date; full list in the [package README](Packages/com.abassignment.unity/README.md#events)) and `consent_status`. `custom_user_ids` holds only ids your game adds with `AddCustomUserId`. |
+| `customPayload` | The event's own fields (experiment id, group, route, config source, fetch and ads-init outcome, session id, UTC date; full list in the [package README](Packages/com.abassignment.unity/README.md#events)) and `consent_status`. `custom_user_ids`, `custom_id` and `provider_user_id` hold only ids your game passes to `AddCustomUserId`, `ReportCustomId` and `ReportClientAssignment`. `assignment_user_id` repeats `ABAssignment.UserId` in `upliftCustomIdMapping` and in client-managed `upliftAssignment`. |
 
 The request URL repeats `appId`, `userId` and `platform` as query parameters.
 
-Nothing else is sent: no app or package version, no device model, manufacturer, OS version, memory, locale, time zone or country, and no advertising or vendor id (GAID, IDFA, IDFV). As with any HTTP request, Metica's servers see the device's IP address.
+Nothing else is sent: no app or package version, no device model, manufacturer, OS version, memory, locale, time zone or country, and no advertising or vendor id (GAID, IDFA, IDFV). The package never reads those ids; an id your game passes in is sent as given. As with any HTTP request, Metica's servers see the device's IP address.
 
 ## Repository layout
 

@@ -4,12 +4,23 @@ namespace AB.Assignment {
     /// </summary>
     public enum Group {
         /// <summary>No group this session: no Firebase config had arrived when the group was needed, or deciding failed.
-        /// The game runs its own ad code.</summary>
+        /// The game runs its own ad code. In client-managed mode: the game has not reported a group yet.</summary>
         Unassigned,
         /// <summary>Assigned Metica on.</summary>
         Metica,
         /// <summary>Assigned Metica off: the game runs its own ad code.</summary>
         Baseline
+    }
+
+    /// <summary>
+    /// Who decides the group this session (<see cref="ABAssignment.SetAssignmentMode"/>). Not persisted.
+    /// </summary>
+    public enum AssignmentMode {
+        /// <summary>Default: the library decides the group from the Firebase value (or cache) on first need.</summary>
+        Automatic,
+        /// <summary>The game decides the group itself and reports it with
+        /// <see cref="ABAssignment.ReportClientAssignment"/>; the library never decides or changes it.</summary>
+        ClientManaged
     }
 
     /// <summary>
