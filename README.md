@@ -5,7 +5,7 @@ Splits your players into two groups and keeps the split fixed on each device:
 - **Metica**: ads are shown through the Metica SDK.
 - **Baseline**: ads are shown through your own ad code (for example AppLovin MAX).
 
-You set the split in one Firebase Remote Config parameter. The package decides the group on the device, tags every ad placement with it, and sends small events to Metica so revenue can be compared by group. If your game already splits players itself, it can report its own groups instead ([client-managed mode](#7-client-managed-assignment-optional)).
+You set the split in one Firebase Remote Config parameter. The package decides the group on the device, tags every ad placement with it, and sends small events to Metica so revenue can be compared by group. If your game already decides itself which players get Metica, it can report its own groups instead and skip Firebase ([client-managed assignment](#client-managed-assignment)).
 
 The package has no dependency on Firebase, AppLovin MAX or the Metica SDK. Your game keeps calling those itself; the package only tells it which route to take.
 
@@ -19,12 +19,12 @@ AB Assignment is built and maintained by Metica. Until 2.0.0 it was called Metic
 4. [Check that it works](#4-check-that-it-works)
 5. [Kill switch and later changes](#5-kill-switch-and-later-changes)
 6. [FAQ and troubleshooting](#6-faq-and-troubleshooting)
-7. [Client-managed assignment (optional)](#7-client-managed-assignment-optional)
+7. [Optional integrations](#optional-integrations): your own player id, client-managed assignment
 8. [What is sent](#what-is-sent)
 9. [Repository layout](#repository-layout)
 10. [License](#license)
 
-Requirements: Unity 2021.3 or later, Android or iOS. Your game needs Firebase Remote Config, the Metica SDK (for the Metica group) and its own ad code (for the Baseline group).
+Requirements: Unity 2021.3 or later, Android or iOS. Your game needs Firebase Remote Config (not with [client-managed assignment](#client-managed-assignment)), the Metica SDK (for the Metica group) and its own ad code (for the Baseline group).
 
 ---
 
@@ -111,7 +111,6 @@ There are five places to change. A complete, copy-ready version is in the packag
 | Ads start | `Current.RunMetica` to choose the route, and `ReportAdsInit` | [3.3](#33-ads-start) |
 | Every ad show, banner, MREC, revenue event | `TagPlacement` | [3.4](#34-tag-placements) |
 | Player answers your GDPR prompt | `SetConsentStatus` | [3.5](#35-consent) |
-| Optional: your own player id is known | `ReportCustomId` | [3.6](#36-link-your-own-player-id-optional) |
 
 **One rule to remember:** `ABAssignment.Current` and `TagPlacement` decide the player's group the first time you call them. Do not call them at app start: Firebase has not answered yet, so the player would be unassigned for the whole session. `ABAssignment.UserId` is safe to read at any time.
 
@@ -290,22 +289,6 @@ ABAssignment.SetConsentStatus(ConsentStatus.Granted);   // or ConsentStatus.Deni
 
 The package saves the answer on the device and sends it with every event as `consent_status` (`unknown` until you set it). It does not stop or delay anything; consent is applied on the Metica side. This is not the TCF/UMP ad consent string; keep passing that to your ad SDKs as you do now. If your game has no GDPR prompt, skip this step.
 
-### 3.6 Link your own player id (optional)
-
-If your game has its own player id (a login id, a backend id), call this when the id is known, at any time:
-
-```csharp
-ABAssignment.ReportCustomId(yourPlayerId, "login");   // the second argument is an optional label
-```
-
-It sends one `upliftCustomIdMapping` event that pairs your id with the package's `ABAssignment.UserId`. It works before or after `Initialize` (the event waits in the queue), before or after the group is decided, and after the Metica SDK has started. It never decides or changes the group, and it never replaces `ABAssignment.UserId`: that id stays the user id of every event.
-
-- The id must not be null or blank and must be at most 200 characters. The label is optional; if you pass one, the same rules apply. An invalid call logs an error and sends nothing.
-- The id is sent as you pass it. Do not pass personal data such as an email address or phone number; use an opaque or hashed id.
-- Calling it again with the same id and label in the same session sends nothing. A different id or label sends another event, and each new session sends it again, so calling it on every launch is fine.
-
-`AddCustomUserId(source, id)` from earlier versions still works and is unchanged. It is different: it saves the pair on the device and adds it to the `custom_user_ids` field of `upliftAssignment`, so nothing is sent until the group is decided. Use `ReportCustomId` for new code.
-
 ---
 
 ## 4. Check that it works
@@ -323,7 +306,7 @@ Run a **development build on a device or emulator**. The Unity Editor and deskto
 | Wrong app id or API key | `Metica ingestion rejected <n> event(s) with HTTP 401 ...` (or 403). Fix the values passed to `Initialize`. |
 | `Initialize` missing | `ABAssignment.Initialize has not been called yet; events are queued until it is.` |
 | Ads shown | The placement in your ad logs starts with `metica|` or `baseline|` |
-| Client-managed group reported ([section 7](#7-client-managed-assignment-optional)) | `Client-managed group metica, experiment "", provider user <your id or "not known yet">, user <ABAssignment.UserId>` |
+| Client-managed group reported ([client-managed assignment](#client-managed-assignment)) | `Client-managed group metica, experiment "", provider user <your id or "not known yet">, user <ABAssignment.UserId>` |
 
 To test a fresh install on Android: `adb shell pm clear <your.package.name>`. This also creates a new user id, so the device may land in the other group.
 
@@ -379,7 +362,7 @@ Events stay in a queue on the device while it is offline or Metica cannot be rea
 `Initialize`, `ReportRemoteConfig`, `ReportAdsInit`, `SetConsentStatus`, `AddCustomUserId`, `ReportCustomId`, `SetAssignmentMode`, `ReportClientAssignment` and the first read of `Current` must be on the main thread; other threads get an error log and the call is ignored. Once the group is decided, `Current` and `TagPlacement` are safe from any thread, including ad revenue callbacks.
 
 **Can I link my own player id?**
-Yes: `ABAssignment.ReportCustomId(yourPlayerId, "login")` (see [3.6](#36-link-your-own-player-id-optional)). It never changes the group.
+Yes: `ABAssignment.ReportCustomId(yourPlayerId, "login")` (see [Link your own player id](#link-your-own-player-id)). It never changes the group.
 
 **Unity says `Newtonsoft.Json` is defined twice.**
 Remove the extra `Newtonsoft.Json.dll` from your `Assets` folder and keep `com.unity.nuget.newtonsoft-json`.
@@ -394,97 +377,54 @@ The full technical reference (events and fields, delivery and retries, persisten
 
 ---
 
-## 7. Client-managed assignment (optional)
+## Optional integrations
 
-Use this only if your game already decides itself which players get Metica and you want to keep that split. The package then does not use the Firebase parameter: it records the group your game reports, together with the user id your ad stack actually used, and sends the same `upliftAssignment` and `upliftAdsInit` events.
+Neither of these is needed for the setup above.
 
-**Turn it on at app start, on every launch** (it is not saved), before anything reads `Current` or `TagPlacement` or calls `ReportAdsInit`:
+### Link your own player id
 
-```csharp
-[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
-private static void OnBeforeSceneLoad() {
-    ABAssignment.SetAssignmentMode(AssignmentMode.ClientManaged);
-    ABAssignment.Initialize(new ABAssignmentOptions(MeticaAppId, MeticaApiKey));
-}
-```
-
-Skip [section 2](#2-set-up-the-firebase-parameter) and [3.2](#32-firebase-fetch-finishes): in this mode `ReportRemoteConfig` is ignored with a warning.
-
-**Report the group, then the user id the ad stack used.** `ReportClientAssignment(group, providerUserId)` takes `Group.Metica` or `Group.Baseline` and the user id that your ad SDK uses for this player. Report the group before you start the ad SDK, so every session is recorded even if the init never finishes. If you do not know the id yet, pass `null` and call again with the same group and the id once you have it. The package does not read any device or advertising id itself, so pass the id you actually gave to (or got from) the ad SDK:
-
-- Metica route: the id in `MeticaInitResponse.UserId`. If you do not pass a user id to `MeticaInitConfig`, the Metica SDK generates one, and you only get it in the init response. If you pass your own user id, report that one before init. In the Unity Editor the response has no generated id.
-- Your own MAX route: the id you passed to `MaxSdk.SetUserId`. The MAX Unity plugin has no getter for it, so keep your own copy.
-
-These ids are not interchangeable with each other or with `ABAssignment.UserId`, and an IDFV is not the Metica SDK id. The package keeps them apart: the event's user id is always `ABAssignment.UserId`, and your id goes into `provider_user_id`.
+If your game has its own player id (a login or backend id), report it when it is known:
 
 ```csharp
-// useMetica comes from your own split.
-public static async Task InitializeAdsAsync(bool useMetica) {
-    if (useMetica) {
-        await StartMetica();
-    } else {
-        await StartMax();
-    }
-}
-
-private static async Task StartMetica() {
-    var config = new MeticaInitConfig(MeticaApiKey, MeticaAppId, null);   // no user id: the Metica SDK generates one
-    var mediation = new MeticaMediationInfo(MeticaMediationInfo.MeticaMediationType.MAX, MaxSdkKey);
-
-    // The generated id is known only after init, so report the group now and the id later.
-    ABAssignment.ReportClientAssignment(Group.Metica, null);
-    ABAssignment.ReportAdsInit(AdsInitStage.Started);
-    MeticaInitResponse response;
-    try {
-        response = await MeticaSdk.InitializeAsync(config, mediation);
-    } catch (System.Exception e) {
-        ABAssignment.ReportAdsInit(AdsInitStage.Failed, e.Message);
-        return;
-    }
-    if (!string.IsNullOrEmpty(response.UserId)) {
-        ABAssignment.ReportClientAssignment(Group.Metica, response.UserId);
-    }
-    ABAssignment.ReportAdsInit(AdsInitStage.Succeeded, null,
-        response.SmartFloors?.UserGroup.ToString(), response.SmartFloors?.IsForcedHoldout);
-}
-
-private static async Task StartMax() {
-    var maxInit = new TaskCompletionSource<bool>();
-    MaxSdkCallbacks.OnSdkInitializedEvent += configuration => {
-        maxInit.TrySetResult(configuration.IsSuccessfullyInitialized);
-    };
-    MaxSdk.SetUserId(MyMaxUserId);
-    ABAssignment.ReportClientAssignment(Group.Baseline, MyMaxUserId);
-
-    ABAssignment.ReportAdsInit(AdsInitStage.Started);
-    MaxSdk.InitializeSdk();
-    if (await maxInit.Task) {
-        ABAssignment.ReportAdsInit(AdsInitStage.Succeeded);
-    } else {
-        ABAssignment.ReportAdsInit(AdsInitStage.Failed, "MAX failed to initialize");
-    }
-}
+ABAssignment.ReportCustomId(yourPlayerId, "login");   // the label is optional
 ```
 
-After the report, `Current` returns your group, and `TagPlacement` uses it (`metica|...` or `baseline|...`). Tag placements after the report.
+It sends one `upliftCustomIdMapping` event that pairs your id with `ABAssignment.UserId`. Call it at any time, before or after `Initialize` and after ads have started; calling it on every launch is fine. It never changes the group or `ABAssignment.UserId`. Pass an opaque or hashed id, not an email address or phone number. Rules and payload: [package reference](Packages/com.abassignment.unity/README.md#custom-id-mapping).
 
-| Situation | What happens |
-|---|---|
-| Before the report | Nothing decides the group and no `upliftAssignment` is sent. `Current` is unassigned (`ConfigSource` `client_managed_pending`), `TagPlacement` gives `unassigned|...`, and there is no Firebase fetch timeout event. |
-| `ReportAdsInit(Started)` before the report | Accepted (it records the start time). |
-| `ReportAdsInit` outcome before the report | Logged as an error and ignored. Report the group first. |
-| No outcome 30 s after `Started` | `pending_timeout` is sent once the group is reported. |
-| First valid report | Fixes the group for this session and sends one `upliftAssignment`. Works before `Initialize` (queued). With a `null` provider id the event has no `provider_user_id`. |
-| Same report again (for example a retry), or the same group with `null` | Nothing is sent. `null` never clears an id already reported. |
-| Same group, provider id now known or changed | One more `upliftAssignment` with the new `provider_user_id`. The group does not change. |
-| Different group or experiment in the same session | Logged as an error and ignored. The group never changes during a session. |
-| `Group.Unassigned`, an undefined `Group` value, a blank id, or an id longer than 200 characters | Logged as an error and ignored. |
-| `ReportClientAssignment` without `SetAssignmentMode(ClientManaged)` | Logged as an error and ignored. |
-| `SetAssignmentMode` after the group was decided | Logged as an error and ignored (setting the mode already in effect is not an error). |
-| New UTC day while the app runs | One more `upliftAssignment` with the reported group and the latest provider id. |
-| Next launch | Starts in automatic mode with nothing reported. Call `SetAssignmentMode` and `ReportClientAssignment` again. |
+`AddCustomUserId` from earlier versions still works unchanged; it adds ids to `upliftAssignment` instead of sending them at once.
 
-`ReportClientAssignment` also takes an optional third argument, your own experiment label, sent as `experiment_id` (empty when not given). `SetDebugOverride` has no effect in this mode. `ReportCustomId` works the same in both modes.
+### Client-managed assignment
+
+Use this instead of the Firebase parameter if your game already decides itself which players get Metica. Skip [section 2](#2-set-up-the-firebase-parameter) and [3.2](#32-firebase-fetch-finishes). `Initialize`, placement tagging ([3.4](#34-tag-placements)) and consent ([3.5](#35-consent)) work as described above. Keep your existing ad startup and user ids; the calls below are added to it. The startup code in [3.3](#33-ads-start) is for automatic mode and gives the ad SDKs `ABAssignment.UserId`, so do not copy it here.
+
+1. On every launch (the mode is not saved), before anything reads `Current` or `TagPlacement` or calls `ReportAdsInit`:
+
+   ```csharp
+   ABAssignment.SetAssignmentMode(AssignmentMode.ClientManaged);
+   ABAssignment.Initialize(new ABAssignmentOptions(MeticaAppId, MeticaApiKey));
+   ```
+
+2. Before you start ads, report the group your game chose and the user id your ad SDK uses for this player, or `null` if you do not know it yet:
+
+   ```csharp
+   if (useMetica) {   // useMetica comes from your own split
+       ABAssignment.ReportClientAssignment(Group.Metica, null);            // the Metica SDK id is known only after init
+   } else {
+       ABAssignment.ReportClientAssignment(Group.Baseline, myMaxUserId);   // the id you pass to MaxSdk.SetUserId
+   }
+   ```
+
+3. Call `ABAssignment.ReportAdsInit(AdsInitStage.Started)` just before you start the ad SDK, then `Succeeded` or `Failed` when its init ends. On the Metica route, report the id once init returns it:
+
+   ```csharp
+   if (!string.IsNullOrEmpty(response.UserId)) {   // response is the MeticaInitResponse
+       ABAssignment.ReportClientAssignment(Group.Metica, response.UserId);
+   }
+   ```
+
+After the report, `Current` and `TagPlacement` use your group, and the group stays fixed for the session. The package never reads device or advertising ids. Every event keeps `ABAssignment.UserId` as its user id; your id is sent separately as `provider_user_id`.
+
+The full client-managed Metica and MAX startup example and the exact behaviour (repeated or invalid reports, ads-init timeout, day change) are in the [package reference](Packages/com.abassignment.unity/README.md#client-managed-mode).
 
 ---
 

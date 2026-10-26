@@ -1,6 +1,6 @@
 # AB Assignment
 
-Decides on the device whether it is in the **Metica** group (Metica on) or the **Baseline** group (Metica off). The split comes from one Firebase Remote Config parameter. The package sends its own events straight to Metica ingestion. It has no dependency on Firebase, AppLovin MAX or the Metica SDK; the game wires those up. Its only package dependency is `com.unity.nuget.newtonsoft-json` (Unity's Json.NET package). A project that ships its own `Newtonsoft.Json.dll` (for example an Asset Store copy) must remove it, or Unity reports a duplicate assembly.
+Decides on the device whether it is in the **Metica** group (Metica on) or the **Baseline** group (Metica off). By default (automatic mode) the split comes from one Firebase Remote Config parameter; a game that decides the group itself reports it instead ([client-managed mode](#client-managed-mode)). The package sends its own events straight to Metica ingestion. It has no dependency on Firebase, AppLovin MAX or the Metica SDK; the game wires those up. Its only package dependency is `com.unity.nuget.newtonsoft-json` (Unity's Json.NET package). A project that ships its own `Newtonsoft.Json.dll` (for example an Asset Store copy) must remove it, or Unity reports a duplicate assembly.
 
 Built and maintained by Metica. License: proprietary, source available for reference. See [LICENSE.md](LICENSE.md).
 
@@ -26,6 +26,8 @@ ABAssignment.ReportRemoteConfig(RemoteConfigStatus.Success, value, null);   // o
 AssignmentResult a = ABAssignment.Current;
 if (a.RunMetica) { /* start Metica ads */ } else { /* start the game's own ad code */ }
 ```
+
+This is automatic mode. In [client-managed mode](#client-managed-mode) the game calls `SetAssignmentMode` and `ReportClientAssignment` instead of `ReportRemoteConfig`.
 
 `Initialize` is the only setup call, and the build ships no config file. The session (user id, event queue, fetch timer) starts before the first scene loads; the group is decided the first time the game needs it (reading `Current`, `TagPlacement` or `ReportAdsInit`). A hidden `ABAssignment` object then checks the deadlines and the UTC day every frame and on resume, and sends queued events to Metica.
 
@@ -109,7 +111,8 @@ Until the game calls `ReportClientAssignment(group, providerUserId, experimentId
 
 - `group` must be `Group.Metica` or `Group.Baseline`. `providerUserId` is the user id the game's ad stack uses (`MeticaInitResponse.UserId` on the Metica route, the id given to `MaxSdk.SetUserId` on the game's own MAX route), or null while it is not known yet. `experimentId` is optional. A non-null id follows the `ReportCustomId` id rules (not blank, at most 200 characters). Otherwise: error, ignored.
 - Report the group before starting the ad SDK, with a null provider id if it is not known yet, so that sessions whose init never finishes are still recorded and get `pending_timeout`.
-- The first valid report creates the session's `AssignmentResult` (`Group` as reported, `RunMetica = Group == Metica`, `Enabled = true`, `ExperimentId` = label or empty, `Bucket = -1`, `MeticaPercentageBasisPoints = 0`, `UserId` = the generated id, `ConfigSource = "client_managed"`, `IsNewAssignment = false`) and queues one `upliftAssignment`:
+- The package never reads device or advertising ids (GAID, IDFA, IDFV); pass the id the ad SDK actually uses. On the Metica route, without a user id in `MeticaInitConfig` the Metica SDK generates one and returns it only in `MeticaInitResponse.UserId` (in the Unity Editor there is none); with your own user id, report that one before init. The MAX Unity plugin has no user id getter, so keep a copy of what you pass to `MaxSdk.SetUserId`. These ids are not interchangeable with each other or with `ABAssignment.UserId`.
+- The first valid report (it may come before `Initialize`; the event is queued) creates the session's `AssignmentResult` (`Group` as reported, `RunMetica = Group == Metica`, `Enabled = true`, `ExperimentId` = label or empty, `Bucket = -1`, `MeticaPercentageBasisPoints = 0`, `UserId` = the generated id, `ConfigSource = "client_managed"`, `IsNewAssignment = false`) and queues one `upliftAssignment`:
 
 ```json
 {"eventType":"upliftAssignment","eventId":"<uuid>","appId":"<appId>","eventTime":1792144800000,
@@ -124,6 +127,64 @@ Until the game calls `ReportClientAssignment(group, providerUserId, experimentId
 - Same group, experiment and provider id again, or the same group and experiment with a null provider id: nothing sent (null never clears a known id). Same group and experiment with a new provider id: one more `upliftAssignment` with it. Another group or experiment: error, ignored; the group stays fixed for the session.
 - After the report, the day change, `AddCustomUserId`, `ReportAdsInit` and `TagPlacement` work as in automatic mode, with the reported group; `upliftAdsInit.network` is `metica` for `Group.Metica`, otherwise `applovin`. `SetDebugOverride` has no effect.
 - Without the call, `ReportClientAssignment` is logged as an error and ignored. The library never chooses a group in this mode.
+- The next launch starts in automatic mode with nothing reported; call `SetAssignmentMode` and `ReportClientAssignment` again.
+
+Example with both routes (`useMetica` comes from the game's own split; `MeticaAppId`, `MeticaApiKey`, `MaxSdkKey` and `MyMaxUserId` are the game's own values):
+
+```csharp
+using System.Threading.Tasks;
+using AB.Assignment;
+using Metica;
+using Metica.Ads;
+
+public static async Task InitializeAdsAsync(bool useMetica) {
+    if (useMetica) {
+        await StartMetica();
+    } else {
+        await StartMax();
+    }
+}
+
+private static async Task StartMetica() {
+    var config = new MeticaInitConfig(MeticaApiKey, MeticaAppId, null);   // no user id: the Metica SDK generates one
+    var mediation = new MeticaMediationInfo(MeticaMediationInfo.MeticaMediationType.MAX, MaxSdkKey);
+
+    // The generated id is known only after init, so report the group now and the id later.
+    ABAssignment.ReportClientAssignment(Group.Metica, null);
+    ABAssignment.ReportAdsInit(AdsInitStage.Started);
+    MeticaInitResponse response;
+    try {
+        response = await MeticaSdk.InitializeAsync(config, mediation);
+    } catch (System.Exception e) {
+        ABAssignment.ReportAdsInit(AdsInitStage.Failed, e.Message);
+        return;
+    }
+    if (!string.IsNullOrEmpty(response.UserId)) {
+        ABAssignment.ReportClientAssignment(Group.Metica, response.UserId);
+    }
+    ABAssignment.ReportAdsInit(AdsInitStage.Succeeded, null,
+        response.SmartFloors?.UserGroup.ToString(), response.SmartFloors?.IsForcedHoldout);
+}
+
+private static async Task StartMax() {
+    var maxInit = new TaskCompletionSource<bool>();
+    MaxSdkCallbacks.OnSdkInitializedEvent += configuration => {
+        maxInit.TrySetResult(configuration.IsSuccessfullyInitialized);
+    };
+    MaxSdk.SetUserId(MyMaxUserId);
+    ABAssignment.ReportClientAssignment(Group.Baseline, MyMaxUserId);
+
+    ABAssignment.ReportAdsInit(AdsInitStage.Started);
+    MaxSdk.InitializeSdk();
+    if (await maxInit.Task) {
+        ABAssignment.ReportAdsInit(AdsInitStage.Succeeded);
+    } else {
+        ABAssignment.ReportAdsInit(AdsInitStage.Failed, "MAX failed to initialize");
+    }
+}
+```
+
+`MeticaSdk.InitializeAsync` does not throw when init fails; it returns a forced holdout, which is reported as `Succeeded` with `forced_holdout = true`. The `catch` is for unexpected exceptions, such as an invalid config.
 
 ### Delivery to Metica
 
