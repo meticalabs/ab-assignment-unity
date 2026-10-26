@@ -21,6 +21,7 @@ namespace AB.Assignment {
         internal const string AssignmentEvent = "upliftAssignment";
         internal const string ConfigFetchEvent = "upliftConfigFetch";
         internal const string AdsInitEvent = "upliftAdsInit";
+        internal const string CustomIdMappingEvent = "upliftCustomIdMapping";
 
         internal const long ConfigFetchTimeoutMs = 10000;
         internal const long AdsInitTimeoutMs = 30000;
@@ -50,6 +51,13 @@ namespace AB.Assignment {
 
         // A valid Firebase value received in this session before the group was decided.
         private AssignmentConfig _remoteThisSession;
+
+        // Who decides the group this session. Can change only while the group is not decided.
+        private AssignmentMode _mode = AssignmentMode.Automatic;
+        // Client-managed: the provider user id of the latest report.
+        private string _providerUserId;
+        // ReportCustomId pairs already sent this session.
+        private readonly HashSet<(string, string)> _reportedCustomIds = new HashSet<(string, string)>();
 
         // The group, decided once on first need and fixed for the rest of the session.
         private volatile AssignmentResult _current;
@@ -136,6 +144,8 @@ namespace AB.Assignment {
         /// <summary>
         /// Decides the group on first need and returns it; later calls return the same result. Uses a valid Firebase
         /// value received earlier in this session, otherwise the cached one; with neither, the session is unassigned.
+        /// Client-managed mode never decides: until the game reports a group it returns a new "client_managed_pending"
+        /// unassigned result that is neither stored nor sent.
         /// Returns null only when called off the main thread before the group exists.
         /// </summary>
         public AssignmentResult EnsureAssigned() {
@@ -150,6 +160,10 @@ namespace AB.Assignment {
             }
             if (!EnsureSession()) {
                 return null;
+            }
+            if (_mode == AssignmentMode.ClientManaged) {
+                return AssignmentResult.CreateUnassigned(_userId, _sessionId,
+                    AssignmentResult.SourceClientManagedPending, "client-managed group not reported yet");
             }
             AssignmentResult result;
             try {
@@ -245,8 +259,118 @@ namespace AB.Assignment {
             }
         }
 
+        public void ReportCustomId(string customId, string source) {
+            if (!CheckMainThread(nameof(ReportCustomId)) || !EnsureSession()) {
+                return;
+            }
+            if (!CheckId(nameof(ReportCustomId), "customId", customId) ||
+                (source != null && !CheckId(nameof(ReportCustomId), "source", source)) ||
+                !CheckUserId(nameof(ReportCustomId))) {
+                return;
+            }
+            if (!_reportedCustomIds.Add((source, customId))) {
+                AssignmentLog.Info("Custom id already sent this session; " + CustomIdMappingEvent + " not sent again.");
+                return;
+            }
+            var payload = new Dictionary<string, object> {
+                { "assignment_user_id", _userId },
+                { "custom_id", customId }
+            };
+            if (source != null) {
+                payload["custom_id_source"] = source;
+            }
+            payload["session_id"] = _sessionId;
+            payload["activity_date_utc"] = FormatDate(_clock.UtcNow);
+            Emit(CustomIdMappingEvent, payload);
+        }
+
+        public void SetAssignmentMode(AssignmentMode mode) {
+            if (!CheckMainThread(nameof(SetAssignmentMode))) {
+                return;
+            }
+            if (mode != AssignmentMode.Automatic && mode != AssignmentMode.ClientManaged) {
+                AssignmentLog.Error("Unknown AssignmentMode " + mode + "; call ignored.");
+                return;
+            }
+            if (mode == _mode) {
+                return;
+            }
+            if (_current != null) {
+                AssignmentLog.Error("SetAssignmentMode(" + mode + ") was called after the group was decided this " +
+                                    "session (group " + _current.Label + ", source " + _current.ConfigSource +
+                                    "); call ignored. Set the mode before anything reads Current, TagPlacement or " +
+                                    "ReportAdsInit.");
+                return;
+            }
+            _mode = mode;
+            AssignmentLog.Info("Assignment mode " + mode + " for this session.");
+        }
+
+        public void ReportClientAssignment(Group group, string providerUserId, string experimentId) {
+            const string api = nameof(ReportClientAssignment);
+            if (!CheckMainThread(api) || !EnsureSession()) {
+                return;
+            }
+            if (_mode != AssignmentMode.ClientManaged) {
+                AssignmentLog.Error(api + " needs SetAssignmentMode(AssignmentMode.ClientManaged) first; call ignored.");
+                return;
+            }
+            if (group != Group.Metica && group != Group.Baseline) {
+                AssignmentLog.Error(api + " needs Group.Metica or Group.Baseline, was " + group + "; call ignored.");
+                return;
+            }
+            // A null provider id means "not known yet" (the Metica SDK id arrives only with its init response).
+            if ((providerUserId != null && !CheckId(api, "providerUserId", providerUserId)) ||
+                (experimentId != null && !CheckId(api, "experimentId", experimentId)) ||
+                !CheckUserId(api)) {
+                return;
+            }
+            string experiment = "";
+            if (experimentId != null) {
+                experiment = experimentId;
+            }
+            AssignmentResult current = _current;
+            if (current != null) {
+                if (current.Group != group || current.ExperimentId != experiment) {
+                    AssignmentLog.Error(api + "(" + Labels.For(group) + ", experiment \"" + experiment + "\") " +
+                                        "differs from the group already reported this session (" + current.Label +
+                                        ", experiment \"" + current.ExperimentId + "\"); the group is fixed for " +
+                                        "the session; call ignored.");
+                    return;
+                }
+                if (providerUserId == null || providerUserId == _providerUserId) {
+                    AssignmentLog.Info("The same client assignment was already reported this session; nothing sent.");
+                    return;
+                }
+                _providerUserId = providerUserId;
+                AssignmentLog.Info("Provider user id " + providerUserId + " reported; sending " + AssignmentEvent +
+                                   " with it.");
+                EmitAssignment();
+                return;
+            }
+            _providerUserId = providerUserId;
+            _current = new AssignmentResult(group, group == Group.Metica, true, experiment, 0, -1, _userId, _sessionId,
+                AssignmentResult.SourceClientManaged, false, null);
+            _lastSeenUtcDate = _clock.UtcNow.Date;
+            string providerText = "not known yet";
+            if (providerUserId != null) {
+                providerText = providerUserId;
+            }
+            AssignmentLog.Info("Client-managed group " + _current.Label + ", experiment \"" + experiment +
+                               "\", provider user " + providerText + ", user " + _userId);
+            if (!_sender.IsConfigured) {
+                AssignmentLog.Warning("ABAssignment.Initialize has not been called yet; events are queued until it is.");
+            }
+            EmitAssignment();
+        }
+
         public void ReportRemoteConfig(RemoteConfigStatus status, string valueOrNull, string errorOrNull) {
             if (!CheckMainThread(nameof(ReportRemoteConfig)) || !EnsureSession()) {
+                return;
+            }
+            if (_mode == AssignmentMode.ClientManaged) {
+                AssignmentLog.Warning("ReportRemoteConfig is ignored in client-managed mode: the value is not cached " +
+                                      "and " + ConfigFetchEvent + " is not sent.");
                 return;
             }
             string fetchStatus;
@@ -297,7 +421,20 @@ namespace AB.Assignment {
 
         public void ReportAdsInit(AdsInitStage stage, string errorOrNull,
             string meticaInternalGroup, bool? forcedHoldout) {
-            if (!CheckMainThread(nameof(ReportAdsInit)) || EnsureAssigned() == null) {
+            if (!CheckMainThread(nameof(ReportAdsInit))) {
+                return;
+            }
+            if (_mode == AssignmentMode.ClientManaged && _current == null) {
+                // Never decides the group. Started only records the time; an outcome needs the reported group.
+                if (!EnsureSession()) {
+                    return;
+                }
+                if (stage != AdsInitStage.Started) {
+                    AssignmentLog.Error("Ads init outcome " + stage + " was ignored: call ReportClientAssignment " +
+                                        "before reporting the outcome in client-managed mode.");
+                    return;
+                }
+            } else if (EnsureAssigned() == null) {
                 return;
             }
             if (stage == AdsInitStage.Started) {
@@ -363,12 +500,14 @@ namespace AB.Assignment {
                 return;
             }
             long now = _clock.ElapsedMilliseconds;
-            if (!_configFetchSent && now - _initMs >= ConfigFetchTimeoutMs) {
+            // No fetch deadline in client-managed mode: the game does not report the Firebase fetch.
+            if (_mode == AssignmentMode.Automatic && !_configFetchSent && now - _initMs >= ConfigFetchTimeoutMs) {
                 _configFetchSent = true;
                 _configFetchTimedOut = true;
                 EmitConfigFetch("timeout", null);
             }
-            if (_adsInitStarted && !_adsInitOutcomeSent && !_adsInitTimeoutSent &&
+            // Client-managed: Started may come before the group is reported; the timeout waits for the report.
+            if (_adsInitStarted && _current != null && !_adsInitOutcomeSent && !_adsInitTimeoutSent &&
                 now - _adsInitStartMs >= AdsInitTimeoutMs) {
                 _adsInitTimeoutSent = true;
                 Emit(AdsInitEvent, AdsInitPayload("pending_timeout"));
@@ -617,10 +756,18 @@ namespace AB.Assignment {
                 { "group", r.Label },
                 { "metica_route", r.RunMetica }
             };
-            if (r.Group != Group.Unassigned) {
+            if (r.ConfigSource == AssignmentResult.SourceClientManaged) {
+                // Two different ids: the one the game's ad stack uses (left out until known), and the library's own
+                // (also the event userId).
+                if (_providerUserId != null) {
+                    payload["provider_user_id"] = _providerUserId;
+                }
+                payload["assignment_user_id"] = r.UserId;
+            } else if (r.Group != Group.Unassigned) {
                 payload["metica_percentage"] = PercentageValue(r.MeticaPercentageBasisPoints);
             }
-            // remote_this_session / cached_remote when assigned; unassigned_waiting / unassigned_error when not.
+            // remote_this_session / cached_remote when assigned; unassigned_waiting / unassigned_error when not;
+            // client_managed when the game reported the group.
             payload["config_source"] = r.ConfigSource;
             payload["session_id"] = r.SessionId;
             payload["activity_date_utc"] = date;
@@ -738,6 +885,31 @@ namespace AB.Assignment {
             }
             AssignmentLog.Error(api + " must be called on the main thread; call ignored.");
             return false;
+        }
+
+        /// <summary>
+        /// An id is sent as given, so it must be non-blank and short enough not to be cut at 200 characters.
+        /// </summary>
+        private static bool CheckId(string api, string name, string value) {
+            if (string.IsNullOrWhiteSpace(value)) {
+                AssignmentLog.Error(api + " needs a non-blank " + name + "; call ignored.");
+                return false;
+            }
+            if (value.Length > EventValidation.MaxStringLength) {
+                AssignmentLog.Error(api + ": " + name + " is longer than " + EventValidation.MaxStringLength +
+                                    " characters; call ignored.");
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>Without the generated user id (storage failure) an event could not be tied to the player.</summary>
+        private bool CheckUserId(string api) {
+            if (string.IsNullOrEmpty(_userId)) {
+                AssignmentLog.Error(api + ": the generated user id could not be loaded this session; call ignored.");
+                return false;
+            }
+            return true;
         }
 
         /// <summary>Always a double (50 is sent as 50.0), so the event field always has one type.</summary>

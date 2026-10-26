@@ -10,6 +10,8 @@ namespace AB.Assignment {
     /// scene loads; the group is decided on first need (reading <see cref="Current"/>, <see cref="TagPlacement"/> or
     /// <see cref="ReportAdsInit"/>) from a Firebase value received earlier in the session, else the cached one. With
     /// neither, the session is unassigned (the game runs its own ad code) and a later value applies from the next session.
+    /// In client-managed mode (<see cref="SetAssignmentMode"/>) the game decides the group and reports it with
+    /// <see cref="ReportClientAssignment"/> instead.
     /// Threading: every call that changes state is main-thread only; calls from other threads are logged as errors and
     /// ignored. A decided <see cref="Current"/> and <see cref="TagPlacement"/> are safe from any thread.
     /// </summary>
@@ -19,7 +21,9 @@ namespace AB.Assignment {
         /// <summary>
         /// This session's assignment. The first read on the main thread decides the group, which then stays fixed for
         /// the session. Read it only when the game needs the group (for example at ads init), so a Firebase value that
-        /// arrives in the meantime can still decide it. Never null on the main thread.
+        /// arrives in the meantime can still decide it. Never null on the main thread. In client-managed mode it never
+        /// decides: before <see cref="ReportClientAssignment"/> it is unassigned with ConfigSource
+        /// "client_managed_pending" (not stored, nothing sent).
         /// </summary>
         public static AssignmentResult Current => _engine.EnsureAssigned();
 
@@ -36,7 +40,8 @@ namespace AB.Assignment {
         }
 
         /// <summary>
-        /// Starts sending the library's events (upliftAssignment, upliftConfigFetch, upliftAdsInit) to Metica ingestion.
+        /// Starts sending the library's events (upliftAssignment, upliftConfigFetch, upliftAdsInit,
+        /// upliftCustomIdMapping) to Metica ingestion.
         /// Call it once, as early as possible (before the first scene loads is best). Events logged before it are kept
         /// in a persisted queue and sent once it is called. Main thread.
         /// </summary>
@@ -106,10 +111,49 @@ namespace AB.Assignment {
         /// <summary>
         /// Links a game-provided id (for example a login id) to the generated user id. Main thread; any time. Never
         /// changes the group, the bucket or the generated id. A new or changed pair sends one extra upliftAssignment;
-        /// every daily upliftAssignment carries all pairs.
+        /// every daily upliftAssignment carries all pairs. The pairs are persisted and sent only once the group is
+        /// decided. To send a mapping at once, without deciding the group, use <see cref="ReportCustomId"/>.
         /// </summary>
         public static void AddCustomUserId(string source, string id) {
             _engine.AddCustomUserId(source, id);
+        }
+
+        /// <summary>
+        /// Sends one upliftCustomIdMapping event that maps <paramref name="customId"/> (for example a studio player id)
+        /// to the generated <see cref="UserId"/>, which the event carries in assignment_user_id. Main thread; any time,
+        /// before or after <see cref="Initialize"/> (events wait in the queue) and before or after the group is
+        /// decided. Never decides or changes the group or the generated id. <paramref name="customId"/> must be
+        /// non-blank and at most 200 characters; <paramref name="source"/> is an optional label (null = none, otherwise
+        /// the same rules). An invalid call is logged as an error and ignored. The same pair is sent once per session;
+        /// a different pair sends another event.
+        /// </summary>
+        public static void ReportCustomId(string customId, string source = null) {
+            _engine.ReportCustomId(customId, source);
+        }
+
+        /// <summary>
+        /// Chooses who decides the group this session: <see cref="AssignmentMode.Automatic"/> (default) or
+        /// <see cref="AssignmentMode.ClientManaged"/>. Call it at startup on every launch (it is not persisted), before
+        /// anything reads <see cref="Current"/>, <see cref="TagPlacement"/> or calls <see cref="ReportAdsInit"/>. After
+        /// the group is decided, a change is logged as an error and ignored. Main thread.
+        /// </summary>
+        public static void SetAssignmentMode(AssignmentMode mode) {
+            _engine.SetAssignmentMode(mode);
+        }
+
+        /// <summary>
+        /// Client-managed mode only: reports the group the game chose (<see cref="Group.Metica"/> or
+        /// <see cref="Group.Baseline"/>) and <paramref name="providerUserId"/>, the user id the game's ad stack actually
+        /// uses for this player (for example <c>MeticaInitResponse.UserId</c>, or the id passed to MAX), or null while
+        /// it is not known yet. The first valid report fixes the group for the session and sends upliftAssignment;
+        /// <see cref="Current"/> then returns it. The library's <see cref="UserId"/> is not replaced; the event carries
+        /// both ids in separate fields (provider_user_id is left out while null). <paramref name="experimentId"/> is the
+        /// game's own optional experiment label. Repeating the report, or repeating it with a null provider id, sends
+        /// nothing; the same group with a new provider id sends one more upliftAssignment; another group or experiment
+        /// is logged as an error and ignored. Ids given must be non-blank and at most 200 characters. Main thread.
+        /// </summary>
+        public static void ReportClientAssignment(Group group, string providerUserId, string experimentId = null) {
+            _engine.ReportClientAssignment(group, providerUserId, experimentId);
         }
 
         /// <summary>
@@ -130,7 +174,8 @@ namespace AB.Assignment {
         /// is still reported as a new attempt, once per session.
         /// <paramref name="meticaInternalGroup"/> and <paramref name="forcedHoldout"/> are recorded only for
         /// <see cref="AdsInitStage.Succeeded"/>, <paramref name="errorOrNull"/> only for <see cref="AdsInitStage.Failed"/>.
-        /// Decides the group if it has not been decided yet. Main thread.
+        /// Decides the group if it has not been decided yet. Client-managed mode never decides it: before
+        /// <see cref="ReportClientAssignment"/> only <see cref="AdsInitStage.Started"/> is accepted. Main thread.
         /// </summary>
         public static void ReportAdsInit(AdsInitStage stage, string errorOrNull = null,
             string meticaInternalGroup = null, bool? forcedHoldout = null) {
