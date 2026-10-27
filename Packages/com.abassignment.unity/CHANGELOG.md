@@ -1,6 +1,8 @@
 # Changelog
 
-## [Unreleased]
+## [2.2.1] - 2026-10-27
+
+2.2.0 had the same code, but its package.json still said 2.1.0 and these changes had no release heading. 2.2.1 fixes the package version and the changelog only.
 
 Custom id mapping and client-managed assignment. Automatic assignment, its events and the existing API are unchanged.
 
