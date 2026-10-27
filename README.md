@@ -33,12 +33,12 @@ Requirements: Unity 2021.3 or later, Android or iOS. Your game needs Firebase Re
 Add this line to the `dependencies` in your project's `Packages/manifest.json`:
 
 ```json
-"com.abassignment.unity": "https://github.com/meticalabs/ab-assignment-unity.git?path=/Packages/com.abassignment.unity#v2.1.0"
+"com.abassignment.unity": "https://github.com/meticalabs/ab-assignment-unity.git?path=/Packages/com.abassignment.unity#v2.2.1"
 ```
 
 Or in Unity: **Window › Package Manager › + › Add package from git URL…** and paste the URL (the part in quotes after the colon).
 
-`#v2.1.0` pins the version. To update later, change the tag.
+`#v2.2.1` pins the version. To update later, change the tag.
 
 Notes:
 
