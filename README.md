@@ -134,7 +134,18 @@ That is the only setup call. From then on the package sends its events to Metica
 
 **Custom domain (dedicated clusters).** If your Metica setup runs on a dedicated cluster under your own domain, set the same domain you give the Metica SDK: `new ABAssignmentOptions(MeticaAppId, MeticaApiKey) { CustomDomain = "metica.example.com" }`. Leave it unset otherwise. An invalid value makes `Initialize` throw an `ArgumentException`. Accepted values are in the [package README](Packages/com.abassignment.unity/README.md#custom-domain-dedicated-clusters).
 
-`ABAssignment.UserId` is a random id the package creates once per install. Use it as the user id in your other SDKs (Metica, MAX), so all data can be joined on the same id.
+**Which user id to give Metica and MAX.** The package must know every user id you give the Metica SDK or MAX: it is either `ABAssignment.UserId` or an id you report with `ABAssignment.ReportCustomId`.
+All data is joined on this id, so ad revenue under an id the package does not know cannot be matched to the player's group.
+With [client-managed assignment](#client-managed-assignment) you keep your own ids and report them with `ReportClientAssignment` instead.
+
+- **Your game has no stable player id of its own:** use `ABAssignment.UserId`, a random id the package creates once per install.
+  [Section 3.3](#33-ads-start) passes it to the Metica SDK and to `MaxSdk.SetUserId`.
+- **Your game has its own stable player id:** pass that id instead, to `MeticaInitConfig` on the Metica route and to `MaxSdk.SetUserId` on your own MAX route, and report the same id with `ABAssignment.ReportCustomId` (see [Link your own player id](#link-your-own-player-id)).
+  The Metica SDK takes the user id only at init, so the id must exist when ads start.
+  If your player id does not exist yet when ads start (for example before the first login), pass `ABAssignment.UserId` for that session and switch to your own id from the next session.
+
+Use the same id on both routes, and never leave it out.
+Without a user id, the Metica SDK generates its own and gives it to MAX, and on your own MAX route MAX gets none; the package knows neither.
 
 **Optional: copies for your own analytics.** Metica always gets the events. If you also want them in your own analytics:
 
@@ -188,6 +199,9 @@ rc.FetchAsync(System.TimeSpan.Zero).ContinueWithOnMainThread(fetchTask => {
 ### 3.3 Ads start
 
 This is where the group is decided. Read `ABAssignment.Current` once, then start **either** the Metica SDK **or** your own ad code, and report the start and the result with `ReportAdsInit`.
+
+The snippets pass `assignment.UserId` (the same value as `ABAssignment.UserId`) to both SDKs.
+If your game has its own stable player id, pass that id in both arms instead and report it, as described in [3.1](#31-app-start).
 
 ```csharp
 using System.Threading.Tasks;
@@ -363,6 +377,7 @@ Events stay in a queue on the device while it is offline or Metica cannot be rea
 
 **Can I link my own player id?**
 Yes: `ABAssignment.ReportCustomId(yourPlayerId, "login")` (see [Link your own player id](#link-your-own-player-id)). It never changes the group.
+It is required if you give that id to the Metica SDK or MAX as their user id.
 
 **Unity says `Newtonsoft.Json` is defined twice.**
 Remove the extra `Newtonsoft.Json.dll` from your `Assets` folder and keep `com.unity.nuget.newtonsoft-json`.
@@ -379,7 +394,7 @@ The full technical reference (events and fields, delivery and retries, persisten
 
 ## Optional integrations
 
-Neither of these is needed for the setup above.
+Neither of these is needed for the setup above, which gives `ABAssignment.UserId` to the Metica SDK and MAX.
 
 ### Link your own player id
 
@@ -388,6 +403,9 @@ If your game has its own player id (a login or backend id), report it when it is
 ```csharp
 ABAssignment.ReportCustomId(yourPlayerId, "login");   // the label is optional
 ```
+
+If you give this id to the Metica SDK or MAX as their user id, the report is required, and the id must be the exact same string.
+Without it, ad revenue under that id cannot be matched to the player's group.
 
 It sends one `upliftCustomIdMapping` event that pairs your id with `ABAssignment.UserId`. Call it at any time, before or after `Initialize` and after ads have started; calling it on every launch is fine. It never changes the group or `ABAssignment.UserId`. Pass an opaque or hashed id, not an email address or phone number. Rules and payload: [package reference](Packages/com.abassignment.unity/README.md#custom-id-mapping).
 
