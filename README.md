@@ -140,11 +140,12 @@ With [client-managed assignment](#client-managed-assignment) you keep your own i
 
 - **Your game has no stable player id of its own:** use `ABAssignment.UserId`, a random id the package creates once per install.
   [Section 3.3](#33-ads-start) passes it to the Metica SDK and to `MaxSdk.SetUserId`.
-- **Your game has its own stable player id:** pass that id to the Metica SDK and to MAX instead, and report the same id with `ABAssignment.ReportCustomId` (see [Link your own player id](#link-your-own-player-id)).
-  If the id is created later, report it as soon as it exists.
+- **Your game has its own stable player id:** pass that id instead, to `MeticaInitConfig` on the Metica route and to `MaxSdk.SetUserId` on your own MAX route, and report the same id with `ABAssignment.ReportCustomId` (see [Link your own player id](#link-your-own-player-id)).
+  The Metica SDK takes the user id only at init, so the id must exist when ads start.
+  If your player id does not exist yet when ads start (for example before the first login), pass `ABAssignment.UserId` for that session and switch to your own id from the next session.
 
 Use the same id on both routes, and never leave it out.
-Without a user id the Metica SDK generates its own and MAX gets none, and the package knows neither.
+Without a user id, the Metica SDK generates its own and gives it to MAX, and on your own MAX route MAX gets none; the package knows neither.
 
 **Optional: copies for your own analytics.** Metica always gets the events. If you also want them in your own analytics:
 
