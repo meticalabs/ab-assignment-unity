@@ -95,6 +95,7 @@ Deadlines are checked every frame by the library, so they fire only while the ap
 - Main thread; any time: before or after `Initialize` (queued), before or after the group is decided, in both modes. It never decides the group, never stores the id and never changes the generated id.
 - `customId`: not null or blank (whitespace only), at most 200 characters; sent as given, never trimmed or cut. `source`: null means none (the field is left out); otherwise the same rules. An invalid call, an off-thread call, or a session whose generated id could not be loaded is logged as an error and sends nothing.
 - The same `(customId, source)` pair is sent once per session; a different pair sends another event. A new session sends it again.
+- A game that gives its own id to the Metica SDK (`MeticaInitConfig`) or to MAX (`MaxSdk.SetUserId`) instead of `ABAssignment.UserId` must report exactly that id here. The mapping is the only link between the ad SDK's user id and the generated id.
 - `AddCustomUserId` is unchanged: it persists the pair (`metica_assignment_custom_ids_v1`) and adds all pairs to every `upliftAssignment` in `custom_user_ids`, and sends nothing before the group is decided. The two do not share state.
 
 ### Client-managed mode
